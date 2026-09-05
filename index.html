@@ -275,6 +275,7 @@ function build(rows){
     new Date().toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 
   buildNext(); buildPeople(); buildRail(); render();
+  setBarH();   // 日期軌填好之後高度才是最終值
 }
 
 function jump(key){
@@ -379,19 +380,24 @@ document.getElementById('next').addEventListener('click', function(e){
 document.getElementById('rail').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(!b) return;
   dayFilter = b.dataset.k;
-  buildRail(); render();
+  buildRail(); render(); setBarH();
   window.scrollTo({ top: document.getElementById('bar').offsetTop - 4 });
 });
 document.getElementById('q').addEventListener('input', render);
 document.getElementById('who').addEventListener('change', render);
 document.getElementById('reload').addEventListener('click', load);
 
-(function(){
+function setBarH(){
   var bar = document.getElementById('bar');
-  var set = function(){ document.documentElement.style.setProperty('--bar-h', bar.offsetHeight + 'px') };
-  set();
-  if(window.ResizeObserver) new ResizeObserver(set).observe(bar);
-})();
+  if(!bar) return;
+  document.documentElement.style.setProperty(
+    '--bar-h', Math.ceil(bar.getBoundingClientRect().height) + 'px');
+}
+setBarH();
+if(window.ResizeObserver) new ResizeObserver(setBarH).observe(document.getElementById('bar'));
+addEventListener('resize', setBarH);
+addEventListener('orientationchange', function(){ setTimeout(setBarH, 250) });
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(setBarH);
 
 var up = document.getElementById('up');
 up.addEventListener('click', function(){ window.scrollTo({top:0,behavior:'smooth'}) });
