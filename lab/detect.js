@@ -179,6 +179,10 @@
 
   // 代碼欄：長度整齊、都含數字、幾乎全相異，例如 AT-114-001
   function codeLike(c) {
+    // 只有文字欄才可能是代碼。金額欄同樣「長度整齊、含數字、幾乎全相異」，
+    // 這條規則原本只用來扣標題分數（金額本來就不會當標題，誤判無害），
+    // 一旦拿來隱藏欄位就會把 857,143 跟 AT-114-001 一起藏掉。
+    if (c.type !== 'text') return false;
     var s2 = c.samples;
     if (s2.length < 2) return false;
     var lens = s2.map(function (v) { return v.length; });
@@ -186,6 +190,15 @@
     return min >= 5 && max - min <= 2 &&
            s2.every(function (v) { return /\d/.test(v); }) &&
            c.distinct / Math.max(c.filled, 1) > 0.9;
+  }
+
+  // 流水號欄：1,2,3… 這種連號整數，對閱讀沒有任何幫助
+  function serialLike(c) {
+    if (c.type !== 'number' || c.filled < 4) return false;
+    if (c.distinct !== c.filled) return false;              // 有重複就不是流水號
+    var nums = c.samples.map(function (v) { return parseFloat(String(v).replace(/,/g, '')); });
+    if (nums.some(isNaN)) return false;
+    return nums.every(function (v) { return v === Math.round(v) && v >= 0 && v <= c.filled + 2; });
   }
 
   // 主標題欄：相異度高、不太長、不是日期或數字的那一欄，越靠左越優先
@@ -304,8 +317,10 @@
       if (used[c.name] || c.type === 'empty') return;
       if (c.type === 'longtext') { used[c.name] = 'body'; roles.body.push(c); }
     });
+    roles.hidden = [];
     cols.forEach(function (c) {
       if (used[c.name] || c.type === 'empty') return;
+      if (serialLike(c) || codeLike(c)) { used[c.name] = 'hidden'; roles.hidden.push(c); return; }
       used[c.name] = 'rest'; roles.rest.push(c);
     });
     roles.assigned = used;
@@ -336,6 +351,7 @@
   }
 
   root.SheetShape = {
+    isNoise: function (c) { return serialLike(c) || codeLike(c); },
     analyse: analyse,
     detectColumn: detectColumn,
     parseDateish: parseDateish,

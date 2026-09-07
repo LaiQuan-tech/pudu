@@ -190,7 +190,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=9"></script>
+<script src="detect.js?v=10"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -323,7 +323,12 @@ function SheetShape_assign(cols, shape){
                 title: take(shape.title,'title'), meta:[], body:[], rest:[] };
   cols.forEach(function(c){ if(!used[c.name] && ['person','status','category','phone','email','url'].indexOf(c.type)>=0){ used[c.name]='meta'; roles.meta.push(c) } });
   cols.forEach(function(c){ if(!used[c.name] && c.type==='longtext'){ used[c.name]='body'; roles.body.push(c) } });
-  cols.forEach(function(c){ if(!used[c.name]){ used[c.name]='rest'; roles.rest.push(c) } });
+  roles.hidden = [];
+  cols.forEach(function(c){
+    if(used[c.name]) return;
+    if(SheetShape.isNoise && SheetShape.isNoise(c)){ used[c.name]='hidden'; roles.hidden.push(c); return; }
+    used[c.name]='rest'; roles.rest.push(c);
+  });
   roles.assigned = used;
   return roles;
 }
@@ -341,6 +346,9 @@ function paint(){
   if(A.headerRow > 0) st.push('略過 ' + A.headerRow + ' 列前言');
   if(A.totals && A.totals.length) st.push('合計列 ' + A.totals.length + ' 條');
   (A.notes || []).forEach(function(nt){ st.push('<span class="fix">' + esc(nt) + '</span>') });
+  if(window.__skippedBlank) st.push('<span class="fix">略過 ' + window.__skippedBlank + ' 列沒有標題的空白列</span>');
+  if(eff.roles.hidden && eff.roles.hidden.length)
+    st.push('<span class="fix">收起流水號／代碼欄：' + esc(eff.roles.hidden.map(function(c){return c.name}).join('、')) + '</span>');
   $('struct').innerHTML = st.join('<span style="opacity:.4">·</span>');
 
   $('cols').innerHTML = A.cols.map(function(c){
@@ -355,6 +363,7 @@ function paint(){
       '<td class="why-cell">' + esc(c.reason) + '</td></tr>';
   }).join('');
 
+  window.__skippedBlank = 0;
   $('out').innerHTML = renderPage(shape, roles);
 }
 
@@ -364,6 +373,15 @@ function renderPage(shape, roles){
   var cell = function(r, c){ return c ? String(r[idx[c.name]] == null ? '' : r[idx[c.name]]).trim() : '' };
 
   var recs = A.rows.map(function(r){ return { r:r } });
+
+  // 沒有標題的列不是資料。帳表的模板預先編好 54 個項次，
+  // 實際只填了 33 筆，其餘 21 列只有項次和單號——那會變成 21 張空白卡片。
+  var skippedBlank = 0;
+  if(roles.title){
+    var before = recs.length;
+    recs = recs.filter(function(rec){ return cell(rec.r, roles.title) !== '' });
+    skippedBlank = before - recs.length;
+  }
 
   // 矩陣報表：整列數值都空白代表「這個月沒發生」，列出來只是雜訊
   var head = '';
@@ -382,6 +400,7 @@ function renderPage(shape, roles){
       if(parts.length) head += '<div class="totals">' + parts.join('') + '</div>';
     }
   }
+  window.__skippedBlank = skippedBlank;
   if(!recs.length) return head + '<div class="none">這個表沒有任何有值的資料列</div>';
 
   var isDate = roles.group && roles.group.type === 'date';
