@@ -189,7 +189,8 @@
     return cand[0];
   }
 
-  function detectShape(cols) {
+  function detectShape(cols, allCols) {
+    allCols = allCols || cols;
     var date  = pick(cols, 'date');
     var time  = pick(cols, 'time');
     var money = pick(cols, 'money');
@@ -213,6 +214,24 @@
               '，以「' + title.name + '」為主要名稱',
       group: cat, lead: null, title: title, person: person
     };
+    // 矩陣：第一欄是標籤序列，後面兩欄以上是數值。
+    // 這裡要用「宣告的欄位」而不是「有資料的欄位」——整欄空白代表這次沒發生，
+    // 不代表這個欄位不存在。用有資料的欄位判斷，會讓同結構的表因資料稀疏而判成不同形狀。
+    var first = allCols[0], others = allCols.slice(1);
+    var nums = others.filter(function (c) { return c.type === 'number' || c.type === 'money'; });
+    var numOrEmpty = others.filter(function (c) {
+      return c.type === 'number' || c.type === 'money' || c.type === 'empty';
+    });
+    if (first && others.length >= 2 && nums.length >= 1 &&
+        numOrEmpty.length / others.length >= 0.8 &&
+        ['text', 'category', 'person'].indexOf(first.type) >= 0) {
+      return {
+        shape: 'matrix', label: '矩陣／報表', matrix: true,
+        reason: '第一欄「' + first.name + '」是標籤，後面 ' + others.length + ' 欄是數值（' +
+                others.map(function (c) { return c.name + (c.type === 'empty' ? '：整欄空白' : ''); }).join('、') + '）',
+        group: null, lead: null, title: first, person: null, values: nums, allValues: others
+      };
+    }
     if (money && title) return {
       shape: 'pricelist', label: '品項／價目表',
       reason: '偵測到金額欄「' + money.name + '」，以「' + title.name + '」為品項名稱',
@@ -278,7 +297,7 @@
       return detectColumn(name, body.map(function (r) { return r[i]; }));
     });
     var live = cols.filter(function (c) { return c.type !== 'empty'; });
-    var shape = detectShape(live);
+    var shape = detectShape(live, cols);
     return {
       header: header, rows: body, cols: cols,
       shape: shape, roles: assignRoles(live, shape)
@@ -290,5 +309,167 @@
     detectColumn: detectColumn,
     parseDateish: parseDateish,
     parseTimeish: parseTimeish
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* ══════════════════════════════════════════════════════════
+   結構前處理：真實試算表不是資料表，是排版成表格樣子的文件。
+   在判型之前，要先找出「表格到底在哪裡」。
+   ══════════════════════════════════════════════════════════ */
+(function (root) {
+  'use strict';
+  var S = root.SheetShape;
+
+  function blank(v) { return String(v == null ? '' : v).trim() === ''; }
+
+  function normalize(grid) {
+    var w = 0;
+    grid.forEach(function (r) { if (r && r.length > w) w = r.length; });
+    return grid.map(function (r) {
+      var out = [];
+      for (var i = 0; i < w; i++) out.push(String((r && r[i]) == null ? '' : r[i]));
+      return out;
+    });
+  }
+
+  // 連續為 false 的區間 → [[start,end], ...]
+  function runs(flags) {
+    var out = [], s = -1;
+    for (var i = 0; i <= flags.length; i++) {
+      if (i < flags.length && !flags[i]) { if (s < 0) s = i; }
+      else if (s >= 0) { out.push([s, i - 1]); s = -1; }
+    }
+    return out;
+  }
+
+  var RE_TOTAL = /^(總計|合計|小計|總和|加總|total|sum|subtotal)/i;
+
+  /* 找標題列：滿、短、不重複、不是數字，而且下面幾列有資料 */
+  function scoreHeader(rows, i, w) {
+    var cells = rows[i].map(function (v) { return String(v).trim(); });
+    var filled = cells.filter(function (v) { return v !== ''; });
+    if (filled.length < 2) return -Infinity;
+    if (RE_TOTAL.test(filled[0])) return -Infinity;
+
+    var uniq = {}; filled.forEach(function (v) { uniq[v] = 1; });
+    var avgLen = filled.reduce(function (a, v) { return a + v.length; }, 0) / filled.length;
+    var numish = filled.filter(function (v) {
+      return /^[\d.]/.test(v) || !!S.parseDateish(v) || !!S.parseTimeish(v);
+    }).length / filled.length;
+
+    var below = rows.slice(i + 1, i + 6);
+    var belowFill = below.length
+      ? below.reduce(function (a, r) {
+          return a + r.filter(function (v) { return !blank(v); }).length;
+        }, 0) / (below.length * w)
+      : 0;
+
+    return (filled.length / w) * 2                        // 填得越滿越像標題
+         + Object.keys(uniq).length / filled.length        // 欄名不該重複
+         + (avgLen <= 12 ? 1 : avgLen <= 20 ? 0.3 : -0.5)  // 標題通常短
+         - numish * 1.5                                    // 標題通常不是數字或日期
+         + belowFill                                       // 下面要有資料
+         - i * 0.08;                                       // 越前面越優先
+  }
+
+  function buildTable(rows, meta) {
+    var w = rows[0].length;
+    var best = 0, bestScore = -Infinity;
+    var limit = Math.min(rows.length, 12);
+    for (var i = 0; i < limit; i++) {
+      var sc = scoreHeader(rows, i, w);
+      if (sc > bestScore) { bestScore = sc; best = i; }
+    }
+
+    var preamble = rows.slice(0, best)
+      .map(function (r) {
+        return r.map(function (v) { return String(v).replace(/\s+/g, ' ').trim(); })
+                .filter(Boolean).join(' · ');
+      })
+      .filter(Boolean);
+
+    // 只有一格有值的列不能當成合計：請假表裡「3月」沒請假就是這種樣子，那是正常資料。
+    // 改成碰到「總計/合計」之後的所有列才算尾巴。
+    var body = [], totals = [], seenTotal = false;
+    rows.slice(best + 1).forEach(function (r) {
+      if (r.every(blank)) return;
+      var first = String(r.filter(function (v) { return !blank(v); })[0] || '').trim();
+      if (RE_TOTAL.test(first)) { seenTotal = true; totals.push(r); return; }
+      if (seenTotal) { totals.push(r); return; }
+      body.push(r);
+    });
+
+    return {
+      title: preamble.join(' · '),
+      headerRow: best,
+      grid: [rows[best]].concat(body),
+      totals: totals,
+      skipped: preamble.length,
+      range: meta
+    };
+  }
+
+  /* 把一張工作表切成獨立的表格區塊 */
+  function findTables(grid) {
+    var g = normalize(grid);
+    if (!g.length || !g[0].length) return [];
+    var h = g.length, w = g[0].length;
+
+    var colBlank = [], c, r;
+    for (c = 0; c < w; c++) {
+      var any = false;
+      for (r = 0; r < h; r++) if (!blank(g[r][c])) { any = true; break; }
+      colBlank.push(!any);
+    }
+    var rowBlank = g.map(function (row) { return row.every(blank); });
+
+    var colRuns = runs(colBlank), rowRuns = runs(rowBlank), tables = [];
+
+    colRuns.forEach(function (cr) {
+      var chunks = [];
+      rowRuns.forEach(function (rr) {
+        var sub = [];
+        for (var i = rr[0]; i <= rr[1]; i++) sub.push(g[i].slice(cr[0], cr[1] + 1));
+        if (sub.some(function (row) { return row.some(function (v) { return !blank(v); }); }))
+          chunks.push({ rows: sub, r0: rr[0] });
+      });
+      if (!chunks.length) return;
+
+      // 第一個夠大的區塊是主表，後面矮的（合計、註腳）併回去
+      var main = null;
+      chunks.forEach(function (ch) {
+        if (!main && ch.rows.length >= 3) {
+          main = ch;
+        } else if (main) {
+          main.rows = main.rows.concat([new Array(main.rows[0].length).fill('')], ch.rows);
+        }
+      });
+      if (!main) main = chunks[0];
+
+      var t = buildTable(main.rows, { c0: cr[0], c1: cr[1], r0: main.r0 });
+      if (t.grid.length >= 2 && t.grid[0].length >= 2) tables.push(t);
+    });
+
+    return tables;
+  }
+
+  S.findTables = findTables;
+
+  /* 包一層：先切表，再對每一塊做原本的判型 */
+  S.analyseSheet = function (grid) {
+    var tables = findTables(grid);
+    if (!tables.length) return { tables: [] };
+    return {
+      tables: tables.map(function (t) {
+        var a = S.analyse(t.grid);
+        if (a) {
+          a.title = t.title;
+          a.headerRow = t.headerRow;
+          a.totals = t.totals;
+          a.range = t.range;
+        }
+        return a;
+      }).filter(Boolean)
+    };
   };
 })(typeof window !== 'undefined' ? window : globalThis);

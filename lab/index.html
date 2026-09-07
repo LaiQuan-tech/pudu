@@ -54,6 +54,18 @@
   .split{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:18px;margin-top:18px;align-items:start}
   @media (max-width:900px){.split{grid-template-columns:1fr}}
 
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+  .tabs button{font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:6px;
+    border:1px solid var(--line);background:var(--surface);color:var(--ink2)}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .struct{font-size:12px;color:var(--muted);margin:0 0 10px;display:flex;gap:5px 12px;flex-wrap:wrap}
+  .struct b{color:var(--ink2);font-weight:600}
+  .out .totals{margin:10px 0 4px;padding:10px 12px;background:var(--gold-bg);border-radius:5px;
+    display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+  .out .totals .tk{color:var(--gold);font-weight:600}
+  .out .totals .tv{font-weight:700;font-variant-numeric:tabular-nums}
+  .out .doc-title{font-family:"Noto Serif TC",serif;font-size:17px;font-weight:900;
+    margin:0 0 2px;line-height:1.35}
   .verdict{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
   .verdict .shape{font-family:"Noto Serif TC",serif;font-size:19px;font-weight:900}
   .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--ok-bg);color:var(--ok)}
@@ -136,6 +148,8 @@
     <div class="msg" id="msg"></div>
   </div>
 
+  <div class="tabs" id="tabs" hidden></div>
+
   <div class="split" id="split" hidden>
     <section class="panel">
       <div class="verdict">
@@ -143,6 +157,7 @@
         <span class="badge" id="dims"></span>
       </div>
       <p class="why" id="why"></p>
+      <p class="struct" id="struct"></p>
       <table>
         <thead><tr><th>欄位</th><th>判定型別</th><th>角色</th><th class="conf">信心</th><th>依據</th></tr></thead>
         <tbody id="cols"></tbody>
@@ -182,7 +197,7 @@ var SAMPLES = {
 };
 
 var $ = function(id){ return document.getElementById(id) };
-var A = null, raw = null;
+var A = null, raw = null, TABLES = [], cur = 0;
 
 function say(t, isErr){
   var m = $('msg');
@@ -248,9 +263,23 @@ function loadFile(file){
 /* ══ 分析並畫出來 ══ */
 function run(rows){
   raw = rows;
-  A = SheetShape.analyse(rows);
-  if(!A) return say('這份表看起來是空的，或只有標題列。', true);
+  TABLES = SheetShape.analyseSheet(rows).tables;
+  if(!TABLES.length) return say('這份表看起來是空的，或找不到任何表格區塊。', true);
+  cur = 0;
+  var t = $('tabs');
+  t.hidden = TABLES.length < 2;
+  t.innerHTML = TABLES.length < 2 ? '' : TABLES.map(function(a, i){
+    return '<button type="button" data-i="' + i + '" class="' + (i ? '' : 'on') + '">' +
+           esc(a.title ? a.title.split('·')[0].trim() : ('表 ' + (i + 1))) + '</button>';
+  }).join('');
+  if(TABLES.length > 1) say('這張工作表上並排著 ' + TABLES.length + ' 個獨立表格，已自動切開。');
   $('split').hidden = false;
+  showTable(0);
+}
+
+function showTable(i){
+  cur = i; A = TABLES[i];
+  [].forEach.call($('tabs').children, function(b, j){ b.classList.toggle('on', i === j) });
   fillOverrides();
   paint();
 }
@@ -302,6 +331,12 @@ function paint(){
   $('shape').textContent = shape.shape === A.shape.shape ? A.shape.label : ($('ovShape').selectedOptions[0].textContent);
   $('dims').textContent = A.rows.length + ' 列 · ' + A.cols.filter(function(c){return c.type!=='empty'}).length + ' 欄';
   $('why').textContent = A.shape.reason;
+  var st = [];
+  if(A.title) st.push('<b>' + esc(A.title) + '</b>');
+  st.push('標題列：第 ' + (A.headerRow + 1) + ' 列');
+  if(A.headerRow > 0) st.push('略過 ' + A.headerRow + ' 列前言');
+  if(A.totals && A.totals.length) st.push('合計列 ' + A.totals.length + ' 條');
+  $('struct').innerHTML = st.join('<span style="opacity:.4">·</span>');
 
   $('cols').innerHTML = A.cols.map(function(c){
     var role = roles.assigned[c.name];
@@ -324,7 +359,25 @@ function renderPage(shape, roles){
   var cell = function(r, c){ return c ? String(r[idx[c.name]] == null ? '' : r[idx[c.name]]).trim() : '' };
 
   var recs = A.rows.map(function(r){ return { r:r } });
-  if(!recs.length) return '<div class="none">沒有資料列</div>';
+
+  // 矩陣報表：整列數值都空白代表「這個月沒發生」，列出來只是雜訊
+  var head = '';
+  if(shape.matrix){
+    var vals = roles.rest.concat(roles.meta);
+    recs = recs.filter(function(rec){
+      return vals.some(function(c){ return cell(rec.r, c) !== '' });
+    });
+    if(A.title) head += '<p class="doc-title">' + esc(A.title) + '</p>';
+    if(A.totals && A.totals.length){
+      var tr = A.totals[0], parts = [];
+      A.cols.forEach(function(c, i){
+        var v = String(tr[i] == null ? '' : tr[i]).trim();
+        if(v && i > 0) parts.push('<span class="tk">' + esc(c.name) + '</span><span class="tv">' + esc(v) + '</span>');
+      });
+      if(parts.length) head += '<div class="totals">' + parts.join('') + '</div>';
+    }
+  }
+  if(!recs.length) return head + '<div class="none">這個表沒有任何有值的資料列</div>';
 
   var isDate = roles.group && roles.group.type === 'date';
   var isTime = roles.lead && roles.lead.type === 'time';
@@ -358,7 +411,7 @@ function renderPage(shape, roles){
     g.rows.sort(function(a,b){ return a.mins - b.mins });
   });
 
-  return groups.map(function(g){
+  return head + groups.map(function(g){
     var head = roles.group ? '<div class="g-head"><span class="g-name">' + esc(g.label) + '</span>' +
         (g.sub ? '<span class="g-sub">' + esc(g.sub) + '</span>' : '') +
         '<span class="g-cnt">' + g.rows.length + ' 筆</span></div>' : '';
@@ -399,6 +452,10 @@ function renderPage(shape, roles){
 $('go').addEventListener('click', function(){ loadUrl($('url').value.trim()) });
 $('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').click() });
 ['ovShape','ovGroup','ovTitle'].forEach(function(id){ $(id).addEventListener('change', paint) });
+
+$('tabs').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(b) showTable(+b.dataset.i);
+});
 
 document.querySelectorAll('.samples button').forEach(function(b){
   b.addEventListener('click', function(){
