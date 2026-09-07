@@ -519,6 +519,13 @@
       if (!filled.length) continue;
       var uniq = {}; filled.forEach(function (v) { uniq[v] = 1; });
       var distinct = Object.keys(uniq).length;
+      // 數值欄絕對不能向下填補：空白代表「沒有」，不是「同上」。
+      // 請假表把「特休」填下去，等於讓沒請假的月份繼承上個月的時數——那是捏造資料。
+      var numeric = filled.filter(function (v) {
+        return /^-?[\d,]+(\.\d+)?$/.test(v);
+      }).length;
+      if (numeric / filled.length > 0.3) continue;
+
       // 稀疏、少量相異值、且不是每列都有 → 典型的合併儲存格
       if (filled.length / rows.length > 0.6 || distinct > 20 || distinct < 2) continue;
       var last = '';
