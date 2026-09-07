@@ -67,6 +67,16 @@
   .out .totals .tv{font-weight:700;font-variant-numeric:tabular-nums}
   .out .doc-title{font-family:"Noto Serif TC",serif;font-size:17px;font-weight:900;
     margin:0 0 2px;line-height:1.35}
+  .ask{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;
+    padding:12px 14px;border:1px solid var(--accent);background:var(--accent-bg);border-radius:9px}
+  .ask[hidden]{display:none}
+  .ask .q{font-size:13.5px;color:var(--ink)}
+  .ask .q b{font-weight:700}
+  .ask button{font-size:13px;font-weight:600;padding:6px 13px;border-radius:6px;
+    border:1px solid var(--accent);background:var(--surface);color:var(--accent);cursor:pointer}
+  .ask button:hover{background:var(--accent);color:#fff}
+  .ask .x{margin-left:auto;border:0;background:none;color:var(--muted);font-size:17px;padding:2px 6px}
+  .ask .x:hover{background:none;color:var(--ink)}
   .verdict{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
   .verdict .shape{font-family:"Noto Serif TC",serif;font-size:19px;font-weight:900}
   .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--ok-bg);color:var(--ok)}
@@ -150,6 +160,7 @@
   </div>
 
   <div class="tabs" id="tabs" hidden></div>
+  <div class="ask" id="ask" hidden></div>
 
   <div class="split" id="split" hidden>
     <section class="panel">
@@ -190,7 +201,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=10"></script>
+<script src="detect.js?v=11"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -201,7 +212,12 @@ var SAMPLES = {
 };
 
 var $ = function(id){ return document.getElementById(id) };
-var A = null, raw = null, TABLES = [], cur = 0;
+var A = null, raw = null, TABLES = [], cur = 0, sheetKey = 'local';
+
+/* 使用者對「怎麼分段」的選擇要記住，同一份表不該問第二次。 */
+function choiceKey(){ return 'shape-choice:' + sheetKey + ':' + cur }
+function readChoice(){ try { return localStorage.getItem(choiceKey()) } catch(e){ return null } }
+function saveChoice(v){ try { localStorage.setItem(choiceKey(), v) } catch(e){} }
 
 function say(t, isErr){
   var m = $('msg');
@@ -232,6 +248,7 @@ function sheetId(u){
 function loadUrl(u){
   var id = sheetId(u);
   if(!id) return say('看不出這是 Google 試算表的網址，請貼包含 /spreadsheets/d/ 的完整網址。', true);
+  sheetKey = id;
   var gid = (String(u).match(/[#&?]gid=(\d+)/) || [])[1];
   var csv = 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=csv' +
             (gid ? '&gid=' + gid : '') + '&_=' + Date.now();
@@ -285,7 +302,35 @@ function showTable(i){
   cur = i; A = TABLES[i];
   [].forEach.call($('tabs').children, function(b, j){ b.classList.toggle('on', i === j) });
   fillOverrides();
+  var saved = readChoice();
+  if(saved && saved !== '__dismissed__') $('ovGroup').value = saved;
   paint();
+  askGrouping(saved);
+}
+
+/* 只在引擎真的舉棋不定、而且使用者還沒表態過時才問一次。 */
+function askGrouping(saved){
+  var bar = $('ask');
+  bar.hidden = true;
+  if(saved) return;                                  // 問過了
+  var opts = SheetShape.shouldAsk(A);
+  if(!opts.length) return;                           // 沒有第二種說得通的讀法
+
+  var curName = A.roles.group ? A.roles.group.name : null;
+  var choices = opts.filter(function(o){ return o.name !== curName })
+    .map(function(o){
+      return '<button type="button" data-k="' + esc(o.name) + '">' +
+             esc(o.name) + '（' + o.groups + ' 組）</button>';
+    });
+  if(curName) choices.push('<button type="button" data-k="__none__">不分段</button>');
+  if(!choices.length) return;
+
+  bar.innerHTML =
+    '<span class="q">目前' +
+      (curName ? '按<b>「' + esc(curName) + '」</b>分段' : '<b>不分段</b>') +
+    '。要改成？</span>' + choices.join('') +
+    '<button type="button" class="x" data-k="__dismissed__" title="維持現狀">×</button>';
+  bar.hidden = false;
 }
 
 function fillOverrides(){
@@ -477,6 +522,14 @@ $('go').addEventListener('click', function(){ loadUrl($('url').value.trim()) });
 $('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').click() });
 ['ovShape','ovGroup','ovTitle'].forEach(function(id){ $(id).addEventListener('change', paint) });
 
+$('ask').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(!b) return;
+  var k = b.dataset.k;
+  saveChoice(k);
+  $('ask').hidden = true;
+  if(k !== '__dismissed__'){ $('ovGroup').value = k; paint(); }
+});
+
 $('tabs').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(b) showTable(+b.dataset.i);
 });
@@ -485,7 +538,7 @@ document.querySelectorAll('.samples button').forEach(function(b){
   b.addEventListener('click', function(){
     var v = SAMPLES[b.dataset.s];
     if(v.indexOf('http') === 0){ $('url').value = v; loadUrl(v); }
-    else { $('url').value = ''; say(''); run(parseCSV(v)); }
+    else { $('url').value = ''; sheetKey = 'sample:' + b.dataset.s; say(''); run(parseCSV(v)); }
   });
 });
 

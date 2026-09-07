@@ -350,8 +350,52 @@
     };
   }
 
+  /* 有哪些欄位當分組軸說得通。
+     日期和分類的標準不同：日期天生有序、可以用日期軌導覽，組數多不是問題；
+     分類沒有順序，組數一多就等於沒分組。 */
+  function groupOptions(a) {
+    var out = [];
+    a.cols.forEach(function (c) {
+      if (['date', 'category', 'status', 'person'].indexOf(c.type) < 0) return;
+      var i = a.header.indexOf(c.name);
+      var vals = a.rows.map(function (r) { return String(r[i] == null ? '' : r[i]).trim(); })
+                       .filter(Boolean);
+      if (!vals.length) return;
+
+      var keyed = {};
+      vals.forEach(function (v) {
+        var k = c.type === 'date' ? String(v).replace(/\D+/g, '-') : v;
+        keyed[k] = (keyed[k] || 0) + 1;
+      });
+      var n = Object.keys(keyed).length;
+      var avg = vals.length / n;
+      var fill = vals.length / Math.max(a.rows.length, 1);
+
+      if (n < 2) return;
+      if (c.type === 'date') {
+        if (avg < 1.3) return;                       // 幾乎每列一個日期就不算分組
+      } else {
+        if (n > 12 || avg < 2 || fill < 0.5) return; // 分類要少而滿
+      }
+      out.push({ name: c.name, type: c.type, groups: n, avg: Math.round(avg * 10) / 10 });
+    });
+    return out;
+  }
+
+  /* 什麼時候值得問使用者：有兩個以上的軸可選，或目前沒分組但其實有軸可用。
+     只有一個軸而且已經用了它 —— 沒什麼好問的。 */
+  function shouldAsk(a) {
+    var opts = groupOptions(a);
+    var cur = a.roles.group ? a.roles.group.name : null;
+    if (opts.length >= 2) return opts;
+    if (opts.length === 1 && cur !== opts[0].name) return opts;
+    return [];
+  }
+
   root.SheetShape = {
     isNoise: function (c) { return serialLike(c) || codeLike(c); },
+    groupOptions: groupOptions,
+    shouldAsk: shouldAsk,
     analyse: analyse,
     detectColumn: detectColumn,
     parseDateish: parseDateish,
