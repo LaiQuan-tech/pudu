@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>表格形狀偵測 · 驗證台</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --bg:#f3f4f6; --surface:#fff; --ink:#16191d; --ink2:#4b5563; --muted:#8b94a0;
+    --line:#e2e5ea; --accent:#2f5fd0; --accent-bg:#eaf0fd;
+    --ok:#1c7a4a; --ok-bg:#e6f4ec; --warn:#9a6b00; --warn-bg:#fbf1d9;
+    --paper:#f6f2e6; --card:#fffdf6; --sunk:#efe9d8; --pink:#231e18; --pmuted:#8a7d6b;
+    --prule:#e2d9c3; --cinnabar:#b3261e; --gold:#8a6a2b; --gold-bg:#f1e7cd;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#0f1114; --surface:#171a1f; --ink:#e8ebef; --ink2:#aeb6c0; --muted:#79828e;
+    --line:#272c33; --accent:#7ba0f5; --accent-bg:#1a2438;
+    --ok:#5cc48b; --ok-bg:#14291e; --warn:#d4a63c; --warn-bg:#2b2312;
+    --paper:#13110e; --card:#1d1a15; --sunk:#171410; --pink:#f0e9db; --pmuted:#948877;
+    --prule:#332d24; --cinnabar:#e4756a; --gold:#cba55f; --gold-bg:#2c2415;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.6 "Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+  code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+
+  header h1{font-family:"Noto Serif TC",serif;font-size:23px;font-weight:900;margin:0;letter-spacing:.02em}
+  header p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:60ch}
+
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:18px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  input[type=url],input[type=text]{flex:1 1 320px;min-width:0;font:inherit;font-size:13.5px;
+    padding:9px 11px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink)}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  button{font:inherit;font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:7px;
+    border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+  button.ghost{background:transparent;color:var(--accent)}
+  button:disabled{opacity:.5;cursor:default}
+  select{font:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line);
+    border-radius:6px;background:var(--surface);color:var(--ink)}
+  .samples{margin-top:10px;font-size:12.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+  .samples button{background:none;border:1px dashed var(--line);color:var(--ink2);
+    font-weight:500;padding:4px 10px;font-size:12.5px}
+  .drop{margin-top:10px;border:1.5px dashed var(--line);border-radius:8px;padding:14px;
+    text-align:center;color:var(--muted);font-size:12.5px}
+  .drop.over{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+  .msg{margin-top:10px;padding:10px 12px;border-radius:7px;font-size:13px;display:none}
+  .msg.show{display:block}
+  .msg.err{background:var(--warn-bg);color:var(--warn)}
+
+  .split{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:18px;margin-top:18px;align-items:start}
+  @media (max-width:900px){.split{grid-template-columns:1fr}}
+
+  .verdict{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px}
+  .verdict .shape{font-family:"Noto Serif TC",serif;font-size:19px;font-weight:900}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--ok-bg);color:var(--ok)}
+  .why{color:var(--ink2);font-size:13px;margin:2px 0 14px}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-size:10.5px;letter-spacing:.1em;color:var(--muted);
+     font-weight:700;padding:0 8px 7px 0;border-bottom:1px solid var(--line)}
+  td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .cname{font-weight:600}
+  .ttag{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:600;
+    padding:2px 6px;border-radius:4px;background:var(--accent-bg);color:var(--accent);white-space:nowrap}
+  .ttag.dim{background:var(--bg);color:var(--muted)}
+  .rtag{font-size:10.5px;font-weight:700;color:var(--ok);background:var(--ok-bg);
+    padding:2px 6px;border-radius:4px;white-space:nowrap}
+  .rtag.none{background:transparent;color:var(--muted)}
+  .conf{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--ink2);text-align:right}
+  .why-cell{color:var(--muted);font-size:11.5px}
+  .samp{color:var(--muted);font-size:11px;margin-top:3px;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:210px}
+
+  .overrides{display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .overrides label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+
+  /* ── 手機預覽 ── */
+  .phonewrap{position:sticky;top:18px}
+  .phonelabel{font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:700;margin-bottom:8px}
+  .phone{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--paper);
+    height:660px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+
+  .out{padding:16px 14px 40px;color:var(--pink);font-size:15px;line-height:1.65}
+  .out .g-head{position:sticky;top:0;background:var(--paper);z-index:2;display:flex;
+    align-items:baseline;gap:8px;padding:14px 0 6px;border-bottom:1px solid var(--pink)}
+  .out .g-head:first-child{padding-top:2px}
+  .out .g-name{font-family:"Noto Serif TC",serif;font-size:20px;font-weight:700}
+  .out .g-sub{font-size:12px;color:var(--pmuted)}
+  .out .g-cnt{margin-left:auto;font-size:11px;color:var(--pmuted)}
+  .out ol{list-style:none;margin:0;padding:0}
+  .out .rec{display:grid;grid-template-columns:48px 1fr;gap:0 18px;padding:10px 0;border-bottom:1px solid var(--prule)}
+  .out .rec.nolead{grid-template-columns:1fr}
+  .out .rec:last-child{border-bottom:0}
+  .out .lead{text-align:right;font-size:13px;font-weight:700;color:var(--cinnabar);
+    font-variant-numeric:tabular-nums;padding-top:2px}
+  .out .titleline{display:flex;gap:10px;align-items:baseline}
+  .out .t{margin:0;font-size:15.5px;font-weight:600;white-space:pre-wrap;flex:1}
+  .out .price{font-weight:700;color:var(--cinnabar);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .out .metas{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+  .out .m{font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--gold-bg);color:var(--gold)}
+  .out a.m{text-decoration:none}
+  .out .body{margin-top:8px;padding:9px 11px;background:var(--sunk);border-radius:4px;
+    font-size:13.5px;color:var(--pmuted);white-space:pre-wrap;line-height:1.7}
+  .out .kv{margin-top:7px;display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12.5px}
+  .out .k{color:var(--pmuted)}
+  .out .v{white-space:pre-wrap}
+  .out .none{padding:70px 20px;text-align:center;color:var(--pmuted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>表格形狀偵測 · 驗證台</h1>
+    <p>丟一份試算表進來，看它自動判斷成什麼形狀、每一欄被認成什麼、以及為什麼。左邊是判斷依據，右邊是使用者實際會看到的手機頁面。</p>
+  </header>
+
+  <div class="panel">
+    <div class="row">
+      <input id="url" type="url" placeholder="貼上 Google 試算表網址（需設為「知道連結的任何人 · 檢視者」）">
+      <button id="go">載入</button>
+    </div>
+    <div class="drop" id="drop">或把 .csv / .xlsx 檔案拖到這裡</div>
+    <div class="samples">
+      <span>範例：</span>
+      <button data-s="pudu">普渡排程（149 列）</button>
+      <button data-s="price">價目表</button>
+      <button data-s="people">通訊錄</button>
+      <button data-s="status">狀態清單</button>
+      <button data-s="plain">無結構表格</button>
+    </div>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="split" id="split" hidden>
+    <section class="panel">
+      <div class="verdict">
+        <span class="shape" id="shape"></span>
+        <span class="badge" id="dims"></span>
+      </div>
+      <p class="why" id="why"></p>
+      <table>
+        <thead><tr><th>欄位</th><th>判定型別</th><th>角色</th><th class="conf">信心</th><th>依據</th></tr></thead>
+        <tbody id="cols"></tbody>
+      </table>
+      <div class="overrides">
+        <label>版面
+          <select id="ovShape">
+            <option value="">自動</option>
+            <option value="schedule">排程／時程表</option>
+            <option value="pricelist">品項／價目表</option>
+            <option value="directory">名冊／通訊錄</option>
+            <option value="board">狀態清單</option>
+            <option value="cards">一般表格</option>
+          </select>
+        </label>
+        <label>分組依據 <select id="ovGroup"></select></label>
+        <label>主標題欄 <select id="ovTitle"></select></label>
+      </div>
+    </section>
+
+    <section class="phonewrap">
+      <p class="phonelabel">使用者看到的畫面</p>
+      <div class="phone"><div class="out" id="out"></div></div>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="detect.js"></script>
+<script>
+var SAMPLES = {
+  pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
+  price: '品項,分類,單價,備註\n光明燈,點燈,600,一年\n太歲燈,點燈,800,一年\n平安米,結緣品,100,\n環保金紙,金紙,250,一份三支\n祈福蠟燭,結緣品,50,\n斗燈,點燈,1200,含疏文',
+  people: '姓名,職稱,電話,Email,組別\n林雅玲,活動組長,0912345678,ya@example.com,活動組\n陳瑟君,總務,0923456789,se@example.com,行政組\n王藝鐘,護駕,0934567890,yi@example.com,護駕組\n李婉茹,誦經,0945678901,wan@example.com,誦經組',
+  status: '工作項目,狀態,負責人,備註\n訂購金紙,已完成,活動組,共五箱\n場地佈置,進行中,全體人員,\n印製手冊,未開始,行政組,等文稿\n聯絡外燴,進行中,蓴姐,120 份',
+  plain: '編號,說明,數量\nA001,不鏽鋼供桌,3\nA002,紅色板凳,120\nA003,遮陽帳篷,8\nA004,延長線,15'
+};
+
+var $ = function(id){ return document.getElementById(id) };
+var A = null, raw = null;
+
+function say(t, isErr){
+  var m = $('msg');
+  m.className = 'msg show' + (isErr ? ' err' : '');
+  m.textContent = t;
+  if(!t) m.className = 'msg';
+}
+
+function parseCSV(t){
+  var R = [], row = [], f = '', q = false;
+  for(var i = 0; i < t.length; i++){
+    var c = t[i];
+    if(q){ if(c === '"'){ if(t[i+1] === '"'){ f += '"'; i++; } else q = false; } else f += c; }
+    else if(c === '"') q = true;
+    else if(c === ','){ row.push(f); f = ''; }
+    else if(c === '\n'){ row.push(f); R.push(row); row = []; f = ''; }
+    else if(c !== '\r') f += c;
+  }
+  if(f !== '' || row.length){ row.push(f); R.push(row); }
+  return R;
+}
+
+function sheetId(u){
+  var m = String(u).match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : null;
+}
+
+function loadUrl(u){
+  var id = sheetId(u);
+  if(!id) return say('看不出這是 Google 試算表的網址，請貼包含 /spreadsheets/d/ 的完整網址。', true);
+  var gid = (String(u).match(/[#&?]gid=(\d+)/) || [])[1];
+  var csv = 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=csv' +
+            (gid ? '&gid=' + gid : '') + '&_=' + Date.now();
+  say('載入中…');
+  fetch(csv, { cache:'no-store' })
+    .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text() })
+    .then(function(t){ say(''); run(parseCSV(t)) })
+    .catch(function(e){
+      say('讀不到這份試算表（' + e.message + '）。請確認共用設定是「知道連結的任何人 · 檢視者」。', true);
+    });
+}
+
+function loadFile(file){
+  var ext = (file.name.split('.').pop() || '').toLowerCase();
+  var fr = new FileReader();
+  if(ext === 'xlsx' || ext === 'xls'){
+    if(typeof XLSX === 'undefined')
+      return say('Excel 解析元件沒載入成功，請改用 .csv 或試算表網址。', true);
+    fr.onload = function(e){
+      try{
+        var wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
+        var ws = wb.Sheets[wb.SheetNames[0]];
+        say(''); run(XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false }));
+      }catch(err){ say('這個 Excel 檔解析失敗：' + err.message, true) }
+    };
+    fr.readAsArrayBuffer(file);
+  } else {
+    fr.onload = function(e){ say(''); run(parseCSV(e.target.result)) };
+    fr.readAsText(file, 'utf-8');
+  }
+}
+
+/* ══ 分析並畫出來 ══ */
+function run(rows){
+  raw = rows;
+  A = SheetShape.analyse(rows);
+  if(!A) return say('這份表看起來是空的，或只有標題列。', true);
+  $('split').hidden = false;
+  fillOverrides();
+  paint();
+}
+
+function fillOverrides(){
+  var live = A.cols.filter(function(c){ return c.type !== 'empty' });
+  var g = $('ovGroup'), t = $('ovTitle');
+  g.innerHTML = '<option value="">自動</option><option value="__none__">不分組</option>' +
+    live.map(function(c){ return '<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>' }).join('');
+  t.innerHTML = '<option value="">自動</option>' +
+    live.map(function(c){ return '<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>' }).join('');
+  $('ovShape').value = ''; g.value = ''; t.value = '';
+}
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
+
+var TYPE_ZH = { date:'日期', time:'時間', money:'金額', number:'數字', phone:'電話',
+  email:'信箱', url:'網址', person:'人員', status:'狀態', category:'分類',
+  longtext:'長文字', text:'文字', empty:'空欄' };
+var ROLE_ZH = { group:'分組', lead:'前導', title:'標題', meta:'標籤', body:'內文', rest:'欄位' };
+
+function effective(){
+  var shape = Object.assign({}, A.shape);
+  var byName = function(n){ return A.cols.filter(function(c){ return c.name === n })[0] || null };
+  var os = $('ovShape').value, og = $('ovGroup').value, ot = $('ovTitle').value;
+  if(os) shape.shape = os;
+  if(og === '__none__') shape.group = null; else if(og) shape.group = byName(og);
+  if(ot) shape.title = byName(ot);
+  var live = A.cols.filter(function(c){ return c.type !== 'empty' });
+  return { shape: shape, roles: SheetShape_assign(live, shape) };
+}
+// assignRoles 沒對外，用同樣規則重算一份
+function SheetShape_assign(cols, shape){
+  var used = {}, take = function(c, r){ if(!c || used[c.name]) return null; used[c.name] = r; return c };
+  var roles = { group: take(shape.group,'group'), lead: take(shape.lead,'lead'),
+                title: take(shape.title,'title'), meta:[], body:[], rest:[] };
+  cols.forEach(function(c){ if(!used[c.name] && ['person','status','category','phone','email','url'].indexOf(c.type)>=0){ used[c.name]='meta'; roles.meta.push(c) } });
+  cols.forEach(function(c){ if(!used[c.name] && c.type==='longtext'){ used[c.name]='body'; roles.body.push(c) } });
+  cols.forEach(function(c){ if(!used[c.name]){ used[c.name]='rest'; roles.rest.push(c) } });
+  roles.assigned = used;
+  return roles;
+}
+
+function paint(){
+  var eff = effective();
+  var shape = eff.shape, roles = eff.roles;
+
+  $('shape').textContent = shape.shape === A.shape.shape ? A.shape.label : ($('ovShape').selectedOptions[0].textContent);
+  $('dims').textContent = A.rows.length + ' 列 · ' + A.cols.filter(function(c){return c.type!=='empty'}).length + ' 欄';
+  $('why').textContent = A.shape.reason;
+
+  $('cols').innerHTML = A.cols.map(function(c){
+    var role = roles.assigned[c.name];
+    return '<tr>' +
+      '<td><div class="cname">' + esc(c.name) + '</div>' +
+        (c.samples.length ? '<div class="samp">' + esc(c.samples.join(' · ')) + '</div>' : '') + '</td>' +
+      '<td><span class="ttag' + (c.type==='text'||c.type==='empty'?' dim':'') + '">' +
+        (TYPE_ZH[c.type] || c.type) + '</span></td>' +
+      '<td><span class="rtag' + (role?'':' none') + '">' + (ROLE_ZH[role] || '—') + '</span></td>' +
+      '<td class="conf">' + Math.round(c.confidence * 100) + '%</td>' +
+      '<td class="why-cell">' + esc(c.reason) + '</td></tr>';
+  }).join('');
+
+  $('out').innerHTML = renderPage(shape, roles);
+}
+
+/* ══ 渲染使用者實際看到的頁面 ══ */
+function renderPage(shape, roles){
+  var idx = {}; A.cols.forEach(function(c,i){ idx[c.name] = i });
+  var cell = function(r, c){ return c ? String(r[idx[c.name]] == null ? '' : r[idx[c.name]]).trim() : '' };
+
+  var recs = A.rows.map(function(r){ return { r:r } });
+  if(!recs.length) return '<div class="none">沒有資料列</div>';
+
+  var isDate = roles.group && roles.group.type === 'date';
+  var isTime = roles.lead && roles.lead.type === 'time';
+  var isMoney = roles.lead && roles.lead.type === 'money';
+  var DOW = ['日','一','二','三','四','五','六'];
+
+  // 分組（日期欄要沿用上一列的值，排程表常常只在變更時才填日期）
+  var groups = [], byKey = {}, last = '';
+  recs.forEach(function(rec){
+    var key = '全部', sub = '';
+    if(roles.group){
+      var v = cell(rec.r, roles.group);
+      if(isDate){
+        var d = v ? SheetShape.parseDateish(v) : null;
+        if(d){ last = d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+               rec.label = (d.getMonth()+1)+'/'+d.getDate(); rec.dow = '週'+DOW[d.getDay()]; }
+        key = last || '未排定';
+        rec.label = rec.label || (last ? byKey[last] && byKey[last].label : '') || '未排定';
+      } else { key = v || '未分類'; rec.label = key; }
+    }
+    if(!byKey[key]){ byKey[key] = { key:key, label:rec.label || key, sub:rec.dow || '', rows:[] }; groups.push(byKey[key]); }
+    byKey[key].rows.push(rec);
+  });
+  if(isDate) groups.sort(function(a,b){ return a.key < b.key ? -1 : 1 });
+
+  if(isTime) groups.forEach(function(g){
+    g.rows.forEach(function(rec){
+      var t = SheetShape.parseTimeish(cell(rec.r, roles.lead));
+      rec.mins = t ? t.mins : 1e6; rec.lead = t ? t.text : '';
+    });
+    g.rows.sort(function(a,b){ return a.mins - b.mins });
+  });
+
+  return groups.map(function(g){
+    var head = roles.group ? '<div class="g-head"><span class="g-name">' + esc(g.label) + '</span>' +
+        (g.sub ? '<span class="g-sub">' + esc(g.sub) + '</span>' : '') +
+        '<span class="g-cnt">' + g.rows.length + ' 筆</span></div>' : '';
+    return head + '<ol>' + g.rows.map(function(rec){
+      var r = rec.r;
+      var lead = isTime ? (rec.lead || '') : (roles.lead && !isMoney ? cell(r, roles.lead) : '');
+      var title = roles.title ? cell(r, roles.title) : '';
+      var price = isMoney ? cell(r, roles.lead) : '';
+
+      var metas = roles.meta.map(function(c){
+        var v = cell(r, c); if(!v) return '';
+        if(c.type === 'phone') return '<a class="m" href="tel:' + esc(v.replace(/[^\d+]/g,'')) + '">' + esc(v) + '</a>';
+        if(c.type === 'email') return '<a class="m" href="mailto:' + esc(v) + '">' + esc(v) + '</a>';
+        if(c.type === 'url')   return '<a class="m" href="' + esc(v) + '" target="_blank" rel="noopener">連結</a>';
+        return '<span class="m">' + esc(v) + '</span>';
+      }).filter(Boolean).join('');
+
+      var body = roles.body.map(function(c){
+        var v = cell(r, c); return v ? '<div class="body">' + esc(v) + '</div>' : '';
+      }).join('');
+
+      var kv = roles.rest.map(function(c){
+        var v = cell(r, c); return v ? '<div class="k">' + esc(c.name) + '</div><div class="v">' + esc(v) + '</div>' : '';
+      }).filter(Boolean).join('');
+
+      return '<li class="rec' + (lead ? '' : ' nolead') + '">' +
+        (lead ? '<div class="lead">' + esc(lead) + '</div>' : '') +
+        '<div><div class="titleline"><p class="t">' + (esc(title) || '<span style="opacity:.4">（無標題）</span>') + '</p>' +
+          (price ? '<span class="price">' + esc(price) + '</span>' : '') + '</div>' +
+          (metas ? '<div class="metas">' + metas + '</div>' : '') + body +
+          (kv ? '<div class="kv">' + kv + '</div>' : '') +
+        '</div></li>';
+    }).join('') + '</ol>';
+  }).join('');
+}
+
+/* ══ 事件 ══ */
+$('go').addEventListener('click', function(){ loadUrl($('url').value.trim()) });
+$('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').click() });
+['ovShape','ovGroup','ovTitle'].forEach(function(id){ $(id).addEventListener('change', paint) });
+
+document.querySelectorAll('.samples button').forEach(function(b){
+  b.addEventListener('click', function(){
+    var v = SAMPLES[b.dataset.s];
+    if(v.indexOf('http') === 0){ $('url').value = v; loadUrl(v); }
+    else { $('url').value = ''; say(''); run(parseCSV(v)); }
+  });
+});
+
+var drop = $('drop');
+['dragenter','dragover'].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.add('over') });
+});
+['dragleave','drop'].forEach(function(ev){
+  drop.addEventListener(ev, function(e){ e.preventDefault(); drop.classList.remove('over') });
+});
+drop.addEventListener('drop', function(e){
+  var f = e.dataTransfer.files[0]; if(f) loadFile(f);
+});
+drop.addEventListener('click', function(){
+  var i = document.createElement('input');
+  i.type = 'file'; i.accept = '.csv,.tsv,.xlsx,.xls';
+  i.onchange = function(){ if(i.files[0]) loadFile(i.files[0]) };
+  i.click();
+});
+</script>
+</body>
+</html>
