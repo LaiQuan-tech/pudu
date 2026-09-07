@@ -108,6 +108,16 @@
   .phone{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--paper);
     height:660px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 
+  .octl{position:sticky;top:0;z-index:5;background:var(--paper);padding:10px 14px 9px;
+    border-bottom:1px solid var(--prule);display:flex;gap:7px;flex-wrap:wrap}
+  .octl[hidden]{display:none}
+  .octl input,.octl select{font-family:inherit;font-size:13px;color:var(--pink);
+    background:var(--card);border:1px solid var(--prule);border-radius:4px;padding:7px 9px;
+    min-width:0;-webkit-appearance:none;appearance:none}
+  .octl input{flex:1 1 100%}
+  .octl select{flex:1 1 44%}
+  .octl input:focus,.octl select:focus{outline:2px solid var(--cinnabar);outline-offset:-1px}
+  .hits{width:100%;font-size:11.5px;color:var(--pmuted)}
   .out{padding:16px 14px 40px;color:var(--pink);font-size:15px;line-height:1.65}
   .out .g-head{position:sticky;top:0;background:var(--paper);z-index:2;display:flex;
     align-items:baseline;gap:8px;padding:14px 0 6px;border-bottom:1px solid var(--pink)}
@@ -194,14 +204,14 @@
 
     <section class="phonewrap">
       <p class="phonelabel">使用者看到的畫面</p>
-      <div class="phone"><div class="out" id="out"></div></div>
+      <div class="phone"><div class="octl" id="octl" hidden></div><div class="out" id="out"></div></div>
     </section>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=11"></script>
+<script src="detect.js?v=14"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -213,6 +223,7 @@ var SAMPLES = {
 
 var $ = function(id){ return document.getElementById(id) };
 var A = null, raw = null, TABLES = [], cur = 0, sheetKey = 'local';
+var outQ = '', outPicks = {}, filterCols = [];
 
 /* 使用者對「怎麼分段」的選擇要記住，同一份表不該問第二次。 */
 function choiceKey(){ return 'shape-choice:' + sheetKey + ':' + cur }
@@ -300,6 +311,7 @@ function run(rows){
 
 function showTable(i){
   cur = i; A = TABLES[i];
+  outQ = ''; outPicks = {};
   [].forEach.call($('tabs').children, function(b, j){ b.classList.toggle('on', i === j) });
   fillOverrides();
   var saved = readChoice();
@@ -409,7 +421,65 @@ function paint(){
   }).join('');
 
   window.__skippedBlank = 0;
+  renderControls(roles.group ? roles.group.name : null);
   $('out').innerHTML = renderPage(shape, roles);
+  var h0 = $('hits'); if(h0) h0.textContent = window.__hits || '';
+}
+
+/* 搜尋與篩選是使用者頁面的一部分，所以放在預覽裡面而不是工具列。
+   搜尋一律掃全表；篩選只放最值得放的一兩欄——
+   「適合分組」和「適合篩選」門檻差很多：分組每一組都會變成段落標題，
+   篩選只是下拉選單，普渡的人員有 49 個選項，當分組軸糟透了、當篩選軸完美。 */
+function renderControls(groupName){
+  var box = $('octl');
+  // 已經拿來分組的欄位不必再當篩選——每一組本來就看得見了
+  filterCols = SheetShape.filterOptions(A)
+    .filter(function(f){ return f.name !== groupName })
+    .slice(0, 2);
+  var bigEnough = A.rows.length >= 20;      // 十幾列的表不需要搜尋框
+  if(!bigEnough && !filterCols.length){ box.hidden = true; return; }
+
+  var html = '';
+  if(bigEnough) html += '<input id="oq" type="search" placeholder="搜尋…" autocomplete="off" value="' + esc(outQ) + '">';
+  filterCols.forEach(function(f){
+    var i = A.header.indexOf(f.name), tal = {}, lab = {};
+    A.rows.forEach(function(r){
+      var v = String(r[i] == null ? '' : r[i]).trim(); if(!v) return;
+      (f.multi ? SheetShape.tokenizeCell(v) : [v]).forEach(function(t){
+        var k = t.toLowerCase(); tal[k] = (tal[k]||0)+1; if(!lab[k]) lab[k] = t;
+      });
+    });
+    var keys = Object.keys(tal).sort(function(a,b){
+      return tal[b]-tal[a] || lab[a].localeCompare(lab[b],'zh-Hant');
+    });
+    html += '<select data-col="' + esc(f.name) + '"><option value="">所有' + esc(f.name) + '</option>' +
+      keys.map(function(k){
+        return '<option value="' + esc(k) + '"' + (outPicks[f.name] === k ? ' selected' : '') +
+               '>' + esc(lab[k]) + '（' + tal[k] + '）</option>';
+      }).join('') + '</select>';
+  });
+  html += '<div class="hits" id="hits"></div>';
+  box.innerHTML = html;
+  box.hidden = false;
+}
+
+function matchFilters(r){
+  for(var name in outPicks){
+    var pick = outPicks[name]; if(!pick) continue;
+    var f = filterCols.filter(function(x){ return x.name === name })[0];
+    var i = A.header.indexOf(name);
+    var v = String(r[i] == null ? '' : r[i]).trim();
+    var vals = (f && f.multi) ? SheetShape.tokenizeCell(v) : [v];
+    if(!vals.some(function(t){ return t.toLowerCase() === pick })) return false;
+  }
+  return true;
+}
+function matchQuery(r){
+  return !outQ || r.join(' ').toLowerCase().indexOf(outQ) >= 0;
+}
+function hl(v){
+  if(!outQ) return esc(v);
+  return esc(v).replace(new RegExp('('+outQ.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'), '<mark>$1</mark>');
 }
 
 /* ══ 渲染使用者實際看到的頁面 ══ */
@@ -427,6 +497,12 @@ function renderPage(shape, roles){
     recs = recs.filter(function(rec){ return cell(rec.r, roles.title) !== '' });
     skippedBlank = before - recs.length;
   }
+  var beforeFilter = recs.length;
+  recs = recs.filter(function(rec){ return matchFilters(rec.r) && matchQuery(rec.r) });
+  var filtering = outQ || Object.keys(outPicks).some(function(k){ return outPicks[k] });
+  window.__hits = filtering ? recs.length + ' / ' + beforeFilter + ' 筆' : '';
+  if(filtering && !recs.length)
+    return head + '<div class="none">沒有符合的資料</div>';
 
   // 矩陣報表：整列數值都空白代表「這個月沒發生」，列出來只是雜訊
   var head = '';
@@ -495,20 +571,20 @@ function renderPage(shape, roles){
         if(c.type === 'phone') return '<a class="m" href="tel:' + esc(v.replace(/[^\d+]/g,'')) + '">' + esc(v) + '</a>';
         if(c.type === 'email') return '<a class="m" href="mailto:' + esc(v) + '">' + esc(v) + '</a>';
         if(c.type === 'url')   return '<a class="m" href="' + esc(v) + '" target="_blank" rel="noopener">連結</a>';
-        return '<span class="m">' + esc(v) + '</span>';
+        return '<span class="m">' + hl(v) + '</span>';
       }).filter(Boolean).join('');
 
       var body = roles.body.map(function(c){
-        var v = cell(r, c); return v ? '<div class="body">' + esc(v) + '</div>' : '';
+        var v = cell(r, c); return v ? '<div class="body">' + hl(v) + '</div>' : '';
       }).join('');
 
       var kv = roles.rest.map(function(c){
-        var v = cell(r, c); return v ? '<div class="k">' + esc(c.name) + '</div><div class="v">' + esc(v) + '</div>' : '';
+        var v = cell(r, c); return v ? '<div class="k">' + esc(c.name) + '</div><div class="v">' + hl(v) + '</div>' : '';
       }).filter(Boolean).join('');
 
       return '<li class="rec' + (lead ? '' : ' nolead') + '">' +
         (lead ? '<div class="lead">' + esc(lead) + '</div>' : '') +
-        '<div><div class="titleline"><p class="t">' + (esc(title) || '<span style="opacity:.4">（無標題）</span>') + '</p>' +
+        '<div><div class="titleline"><p class="t">' + (hl(title) || '<span style="opacity:.4">（無標題）</span>') + '</p>' +
           (price ? '<span class="price">' + esc(price) + '</span>' : '') + '</div>' +
           (metas ? '<div class="metas">' + metas + '</div>' : '') + body +
           (kv ? '<div class="kv">' + kv + '</div>' : '') +
@@ -521,6 +597,20 @@ function renderPage(shape, roles){
 $('go').addEventListener('click', function(){ loadUrl($('url').value.trim()) });
 $('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').click() });
 ['ovShape','ovGroup','ovTitle'].forEach(function(id){ $(id).addEventListener('change', paint) });
+
+// 只重畫輸出，不重建控制項，免得打字時焦點被搶走
+function repaintOut(){
+  var eff = effective();
+  $('out').innerHTML = renderPage(eff.shape, eff.roles);
+  var h = $('hits'); if(h) h.textContent = window.__hits || '';
+}
+$('octl').addEventListener('input', function(e){
+  if(e.target.id === 'oq'){ outQ = e.target.value.trim().toLowerCase(); repaintOut() }
+});
+$('octl').addEventListener('change', function(e){
+  var col = e.target.dataset && e.target.dataset.col;
+  if(col){ outPicks[col] = e.target.value; repaintOut() }
+});
 
 $('ask').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(!b) return;

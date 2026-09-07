@@ -382,6 +382,71 @@
     return out;
   }
 
+  /* 值得放進篩選器的欄位。
+     這跟分組軸是兩件事，門檻差很多：分組每一組都會變成畫面上的段落標題，
+     多了就是災難；篩選只是下拉選單，50 個選項完全沒問題。
+     普渡的「人員」有 50 個相異值——當分組軸糟透了，當篩選軸完美。 */
+
+  var SPLIT = /[、,，;；\/\n]+|\s{1,}/;
+
+  function tokenizeCell(v) {
+    return String(v).replace(/[（(]/g, '、').replace(/[)）]/g, '、')
+      .split(SPLIT)
+      .map(function (x) { return x.trim().replace(/^[-–]+|[-–]+$/g, ''); })
+      .filter(function (x) { return x && x.length <= 8 && !/[：:]/.test(x); });
+  }
+
+  function tally(list) {
+    var m = {}, name = {};
+    list.forEach(function (v) {
+      var k = v.toLowerCase();                 // Jeff 和 jeff 是同一個人
+      m[k] = (m[k] || 0) + 1;
+      if (!name[k]) name[k] = v;
+    });
+    var keys = Object.keys(m);
+    var avgLen = keys.length
+      ? keys.reduce(function (a, k) { return a + name[k].length; }, 0) / keys.length
+      : 0;
+    return { counts: m, labels: name, n: keys.length, avgLen: avgLen };
+  }
+
+  function filterOptions(a) {
+    var out = [];
+    a.cols.forEach(function (c) {
+      if (['category', 'status', 'person', 'text'].indexOf(c.type) < 0) return;
+      var i = a.header.indexOf(c.name);
+      var cells = a.rows.map(function (r) { return String(r[i] == null ? '' : r[i]).trim(); })
+                        .filter(Boolean);
+      if (cells.length < 4) return;
+
+      // 一格多值的欄位（「副壇主、執行長」）要拆開才篩得準。
+      // 但「蔡宜勳建築師」不該被拆，所以只有拆了真的變多才採用。
+      var flat = tally(cells);
+      var toks = []; cells.forEach(function (v) { toks = toks.concat(tokenizeCell(v)); });
+      var tok = tally(toks);
+      var multi = toks.length > cells.length * 1.25 && tok.n >= 2;
+      var use = multi ? tok : flat;
+      var total = multi ? toks.length : cells.length;
+
+      var n = use.n;
+      var avg = total / n;
+      var fill = cells.length / Math.max(a.rows.length, 1);
+
+      if (n < 2 || n > 60) return;               // 只有一種值篩了沒意義；太多也沒用
+      if (avg < 1.5) return;                     // 幾乎每列都不同 → 篩完只剩一筆
+      if (fill < 0.4) return;                    // 大半列沒填 → 篩掉的比留下的多
+      if (use.avgLen > 12) return;
+
+      out.push({
+        name: c.name, type: c.type, multi: multi,
+        options: n, avg: Math.round(avg * 10) / 10, fill: Math.round(fill * 100),
+        score: fill * Math.min(avg, 8)           // 填得滿、每個選項有料 → 越適合
+      });
+    });
+    out.sort(function (x, y) { return y.score - x.score; });
+    return out;
+  }
+
   /* 什麼時候值得問使用者：有兩個以上的軸可選，或目前沒分組但其實有軸可用。
      只有一個軸而且已經用了它 —— 沒什麼好問的。 */
   function shouldAsk(a) {
@@ -395,6 +460,8 @@
   root.SheetShape = {
     isNoise: function (c) { return serialLike(c) || codeLike(c); },
     groupOptions: groupOptions,
+    filterOptions: filterOptions,
+    tokenizeCell: tokenizeCell,
     shouldAsk: shouldAsk,
     analyse: analyse,
     detectColumn: detectColumn,
