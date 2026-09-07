@@ -116,8 +116,21 @@ if (!args.length) {
   console.error('用法：node compare.mjs <試算表網址或 csv 檔> [更多...]');
   process.exit(1);
 }
-if (!process.env.ANTHROPIC_API_KEY) {
+const KEY = process.env.ANTHROPIC_API_KEY;
+if (!KEY) {
   console.error('請先設定 ANTHROPIC_API_KEY');
+  process.exit(1);
+}
+// HTTP header 只能放 Latin-1。金鑰若含中文，SDK 會丟出看不懂的 ByteString 錯誤，
+// 幾乎都是佔位符忘了換掉，在這裡先擋下來講清楚。
+if (!/^[\x20-\x7E]+$/.test(KEY)) {
+  console.error('ANTHROPIC_API_KEY 含有非 ASCII 字元，看起來是佔位符沒換成真的金鑰。');
+  console.error('目前的值開頭是：' + KEY.slice(0, 7) + '…（長度 ' + KEY.length + '）');
+  process.exit(1);
+}
+if (!/^sk-ant-\S{20,}$/.test(KEY)) {
+  console.error('ANTHROPIC_API_KEY 格式不像真的金鑰（應為 sk-ant- 開頭的長字串）。');
+  console.error('目前長度 ' + KEY.length + ' 字元。');
   process.exit(1);
 }
 
