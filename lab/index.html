@@ -130,6 +130,19 @@
   .orail button.now.on{color:var(--paper)}
   .orail.tables button.on{background:var(--gold);border-color:var(--gold)}
   .out{padding:16px 14px 40px;color:var(--pink);font-size:15px;line-height:1.65}
+  .out .upnext{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:1px;
+    background:var(--prule);border:1px solid var(--prule);border-radius:4px;overflow:hidden;margin:0 0 4px}
+  .out .upnext button{all:unset;background:var(--card);padding:9px 10px 10px;cursor:pointer;
+    display:flex;flex-direction:column;gap:2px}
+  .out .upnext button:hover{background:var(--gold-bg)}
+  .out .upnext button.on{background:var(--pink)}
+  .out .upnext button.on .k,.out .upnext button.on .n{color:var(--paper);opacity:.75}
+  .out .upnext button.on .d{color:var(--paper)}
+  .out .upnext .k{font-size:10px;letter-spacing:.14em;color:var(--pmuted);font-weight:700}
+  .out .upnext .d{font-family:"Noto Serif TC",serif;font-size:17px;font-weight:700;
+    font-variant-numeric:tabular-nums;color:var(--pink)}
+  .out .upnext .n{font-size:11.5px;color:var(--pmuted);font-variant-numeric:tabular-nums}
+  .out .upnext button.hot .d{color:var(--cinnabar)}
   .out .g-head{position:sticky;top:0;background:var(--paper);z-index:2;display:flex;
     align-items:baseline;gap:8px;padding:14px 0 6px;border-bottom:1px solid var(--pink)}
   .out .g-head:first-child{padding-top:2px}
@@ -222,7 +235,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=17"></script>
+<script src="detect.js?v=18"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -605,6 +618,29 @@ function renderPage(shape, roles){
   window.__groups = roles.group
     ? groups.map(function(g){ return { key:g.key, label:g.label, sub:g.sub, count:g.rows.length } })
     : [];
+
+  // 「接下來三天」：比軌道更粗的一層導覽，不用滑就看到近期各有幾件事。
+  // 只有日期軸有意義——帳表、請假表沒有「接下來」可言。
+  if(isDate && groups.length >= 2){
+    var t = new Date();
+    var tk = t.getFullYear() + '-' + ('0'+(t.getMonth()+1)).slice(-2) + '-' + ('0'+t.getDate()).slice(-2);
+    var up = groups.filter(function(g){ return g.key >= tk }).slice(0, 3);
+    if(!up.length) up = groups.slice(-3);
+
+    // 「重點日」不寫死門檻：某天的件數明顯高於中位數就標出來
+    var counts = groups.map(function(g){ return g.rows.length }).sort(function(a,b){ return a-b });
+    var mid = counts[Math.floor(counts.length/2)] || 1;
+    var hotAt = Math.max(3, mid * 2.5);
+
+    head += '<div class="upnext">' + up.map(function(g, i){
+      var k = g.key === tk ? '今天' : (i === 0 ? '接下來' : (g.sub || '　'));
+      var cls = (g.rows.length >= hotAt ? 'hot ' : '') + (g.key === outGroup ? 'on' : '');
+      return '<button type="button" data-g="' + esc(g.key) + '" class="' + cls.trim() + '">' +
+             '<span class="k">' + esc(k) + '</span>' +
+             '<span class="d">' + esc(g.label) + '</span>' +
+             '<span class="n">' + g.rows.length + ' 項</span></button>';
+    }).join('') + '</div>';
+  }
   if(outGroup) groups = groups.filter(function(g){ return g.key === outGroup });
 
   if(isTime) groups.forEach(function(g){
@@ -667,6 +703,12 @@ function repaintOut(){
 $('octl').addEventListener('input', function(e){
   if(e.target.id === 'oq'){ outQ = e.target.value.trim().toLowerCase(); repaintOut() }
 });
+$('out').addEventListener('click', function(e){
+  var b = e.target.closest('.upnext button'); if(!b) return;
+  outGroup = (outGroup === b.dataset.g) ? '' : b.dataset.g;   // 再點一次回到全部
+  repaintOut();
+});
+
 $('octl').addEventListener('click', function(e){
   var b = e.target.closest('button'); if(!b) return;
   if(b.dataset.t !== undefined){ showTable(+b.dataset.t); return; }
