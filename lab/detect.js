@@ -605,6 +605,7 @@
           a.title = t.title;
           a.headerRow = t.headerRow;
           a.totals = t.totals;
+          a.notes = t.notes || [];      // 做過哪些結構轉換，要讓使用者看得到
           a.range = t.range;
         }
         return a;
