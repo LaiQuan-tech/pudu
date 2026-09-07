@@ -118,6 +118,16 @@
   .octl select{flex:1 1 44%}
   .octl input:focus,.octl select:focus{outline:2px solid var(--cinnabar);outline-offset:-1px}
   .hits{width:100%;font-size:11.5px;color:var(--pmuted)}
+  .orail{display:flex;gap:6px;overflow-x:auto;width:100%;margin:2px -14px 0;padding:0 14px 3px;
+    scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .orail::-webkit-scrollbar{display:none}
+  .orail button{flex:0 0 auto;font:inherit;font-size:12px;line-height:1;white-space:nowrap;
+    padding:7px 10px;border-radius:99px;border:1px solid var(--prule);background:var(--card);
+    color:var(--pmuted);cursor:pointer;font-variant-numeric:tabular-nums}
+  .orail button.on{background:var(--pink);border-color:var(--pink);color:var(--paper);font-weight:700}
+  .orail button.now{border-color:var(--cinnabar);color:var(--cinnabar);font-weight:700}
+  .orail button.now.on{color:var(--paper)}
+  .orail.tables button.on{background:var(--gold);border-color:var(--gold)}
   .out{padding:16px 14px 40px;color:var(--pink);font-size:15px;line-height:1.65}
   .out .g-head{position:sticky;top:0;background:var(--paper);z-index:2;display:flex;
     align-items:baseline;gap:8px;padding:14px 0 6px;border-bottom:1px solid var(--pink)}
@@ -211,7 +221,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=14"></script>
+<script src="detect.js?v=16"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -223,7 +233,7 @@ var SAMPLES = {
 
 var $ = function(id){ return document.getElementById(id) };
 var A = null, raw = null, TABLES = [], cur = 0, sheetKey = 'local';
-var outQ = '', outPicks = {}, filterCols = [];
+var outQ = '', outPicks = {}, filterCols = [], outGroup = '';
 
 /* 使用者對「怎麼分段」的選擇要記住，同一份表不該問第二次。 */
 function choiceKey(){ return 'shape-choice:' + sheetKey + ':' + cur }
@@ -311,7 +321,7 @@ function run(rows){
 
 function showTable(i){
   cur = i; A = TABLES[i];
-  outQ = ''; outPicks = {};
+  outQ = ''; outPicks = {}; outGroup = '';
   [].forEach.call($('tabs').children, function(b, j){ b.classList.toggle('on', i === j) });
   fillOverrides();
   var saved = readChoice();
@@ -423,6 +433,7 @@ function paint(){
   window.__skippedBlank = 0;
   renderControls(roles.group ? roles.group.name : null);
   $('out').innerHTML = renderPage(shape, roles);
+  renderRails();
   var h0 = $('hits'); if(h0) h0.textContent = window.__hits || '';
 }
 
@@ -461,6 +472,47 @@ function renderControls(groupName){
   html += '<div class="hits" id="hits"></div>';
   box.innerHTML = html;
   box.hidden = false;
+}
+
+/* 左右滑動的軌道。上下捲看內容、左右滑換段落——
+   兩個軸一起才撐得住手機。23 個日期塞進下拉選單或一路往下捲都難用。 */
+function renderRails(){
+  var box = $('octl');
+  [].forEach.call(box.querySelectorAll('.orail'), function(el){ el.remove() });
+
+  // 多個表格（請假表的五個年度）要能在頁面裡切換，不能只靠工具列的分頁
+  if(TABLES.length > 1){
+    var t = document.createElement('div');
+    t.className = 'orail tables';
+    t.innerHTML = TABLES.map(function(a, i){
+      var name = a.title ? a.title.split('·')[0].trim() : ('表 ' + (i+1));
+      return '<button type="button" data-t="' + i + '" class="' + (i === cur ? 'on' : '') + '">' +
+             esc(name) + '</button>';
+    }).join('');
+    box.appendChild(t);
+  }
+
+  var gs = window.__groups || [];
+  if(gs.length >= 4){
+    var g = document.createElement('div');
+    g.className = 'orail groups';
+    var today = new Date();
+    var todayKey = today.getFullYear() + '-' + ('0'+(today.getMonth()+1)).slice(-2) +
+                   '-' + ('0'+today.getDate()).slice(-2);
+    g.innerHTML = '<button type="button" data-g="" class="' + (outGroup ? '' : 'on') + '">全部</button>' +
+      gs.map(function(x){
+        var cls = (x.key === todayKey ? 'now ' : '') + (x.key === outGroup ? 'on' : '');
+        return '<button type="button" data-g="' + esc(x.key) + '" class="' + cls.trim() + '">' +
+               (x.key === todayKey ? '今天 ' : '') + esc(x.label) +
+               '<span style="opacity:.6"> ' + x.count + '</span></button>';
+      }).join('');
+    box.appendChild(g);
+    // 沒特別選哪一段時，軌道要停在「今天」——那是 pudu 最有用的行為。
+    // 「全部」永遠是選中狀態，不能拿它當捲動目標，否則永遠停在最左邊。
+    var target = outGroup ? g.querySelector('button.on') : g.querySelector('button.now');
+    if(target) g.scrollLeft = Math.max(0, target.offsetLeft - 14);
+  }
+  box.hidden = !box.children.length;
 }
 
 function matchFilters(r){
@@ -548,6 +600,12 @@ function renderPage(shape, roles){
   });
   if(isDate) groups.sort(function(a,b){ return a.key < b.key ? -1 : 1 });
 
+  // 軌道要看得到全部段落，即使畫面只顯示其中一段
+  window.__groups = roles.group
+    ? groups.map(function(g){ return { key:g.key, label:g.label, sub:g.sub, count:g.rows.length } })
+    : [];
+  if(outGroup) groups = groups.filter(function(g){ return g.key === outGroup });
+
   if(isTime) groups.forEach(function(g){
     g.rows.forEach(function(rec){
       var t = SheetShape.parseTimeish(cell(rec.r, roles.lead));
@@ -602,10 +660,16 @@ $('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').
 function repaintOut(){
   var eff = effective();
   $('out').innerHTML = renderPage(eff.shape, eff.roles);
+  renderRails();
   var h = $('hits'); if(h) h.textContent = window.__hits || '';
 }
 $('octl').addEventListener('input', function(e){
   if(e.target.id === 'oq'){ outQ = e.target.value.trim().toLowerCase(); repaintOut() }
+});
+$('octl').addEventListener('click', function(e){
+  var b = e.target.closest('button'); if(!b) return;
+  if(b.dataset.t !== undefined){ showTable(+b.dataset.t); return; }
+  if(b.dataset.g !== undefined){ outGroup = b.dataset.g; repaintOut() }
 });
 $('octl').addEventListener('change', function(e){
   var col = e.target.dataset && e.target.dataset.col;
