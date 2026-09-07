@@ -1,0 +1,8 @@
+{
+  "name": "sheet-shape-lab",
+  "private": true,
+  "type": "module",
+  "description": "表格形狀偵測：規則層與語意層的比較工具",
+  "scripts": { "compare": "node compare.mjs" },
+  "dependencies": { "@anthropic-ai/sdk": "^0.72.0" }
+}

@@ -493,11 +493,19 @@
     }).length;
     if (multi / rows.length > 0.15) return null;      // 一列有多個日期就不是甘特圖
 
+    // 時間軸範圍內、收合後空掉的欄是軸的殘骸（那些「7」「10」的月份標頭），一併清掉。
+    // 只限這個範圍——請假表那種整欄空白的「事假」是真欄位，不能砍。
+    var lo = Math.min.apply(null, dateish), hi = Math.max.apply(null, dateish);
     var keep = [];
     for (c = 0; c < n; c++) {
       if (dateish.indexOf(c) >= 0) continue;
       var any = rows.some(function (r) { return !blank(r[c]); });
-      if (any || !blank(header[c])) keep.push(c);
+      if (any) { keep.push(c); continue; }
+      if (c >= lo && c <= hi) continue;              // 軸內的空殼
+      // 軸的月份標頭可能落在日期範圍之外（標頭在 C/G/K…，日期只出現在 D 到 Z）。
+      // 空欄而且欄名是純數字 → 也是軸的殘骸；欄名是文字的空欄要留（例如請假表的「病假」）。
+      if (/^\d{1,4}$/.test(String(header[c]).trim())) continue;
+      if (!blank(header[c])) keep.push(c);
     }
     return {
       header: keep.map(function (c2) { return header[c2]; }).concat(['日期']),
