@@ -29,7 +29,7 @@
       var y = +m[1];
       return ymd(y < 200 ? y + 1911 : y, +m[2], +m[3]);
     }
-    if ((m = s.match(/^(\d{1,2})\s*[\-\/.月]\s*(\d{1,2})\s*日?$/)))
+    if ((m = s.match(/^(\d{1,2})\s*[\-\/.月]\s*(\d{1,2})\s*日?\s*(前|後|底|初|中|左右|以前|之前|以後)?$/)))
       return ymd(new Date().getFullYear(), +m[1], +m[2]);
     return null;
   }
@@ -65,7 +65,7 @@
   var NAME_HINTS = {
     date:     /日期|時間|date|day|時程|檔期|deadline|due|到期/i,
     time:     /時間|時刻|time|hour|開始|結束/i,
-    money:    /價|金額|費用|費$|價格|單價|小計|總計|預算|薪|price|amount|cost|fee|budget|total|salary/i,
+    money:    /價|金額|費用|費$|價格|單價|小計|總計|預算|薪|稅|帳款|收款|付款|營收|支出|請款|報價|price|amount|cost|fee|budget|total|salary|revenue|invoice/i,
     person:   /人員|負責|姓名|名字|承辦|窗口|聯絡人|主辦|owner|assignee|name|person|contact|staff|member/i,
     phone:    /電話|手機|聯絡|分機|phone|tel|mobile|cell/i,
     email:    /信箱|郵件|email|mail/i,
@@ -75,9 +75,14 @@
     qty:      /數量|人數|件數|qty|quantity|count|數$/i
   };
 
+  var RE_NULLISH = /^([-–—－]|N\/A|n\/a|NA|無|nil|null)$/;
+
   function detectColumn(name, values) {
     var all = values.map(function (v) { return String(v == null ? '' : v); });
-    var filled = all.filter(function (v) { return v.trim() !== ''; });
+    // 「-」代表「沒有」，不是資料。當成空白才不會把金額欄拉成一般文字。
+    var filled = all.filter(function (v) {
+      var t = v.trim(); return t !== '' && !RE_NULLISH.test(t);
+    });
     var n = filled.length;
 
     var col = {
@@ -172,6 +177,17 @@
     return hit[0] || null;
   }
 
+  // 代碼欄：長度整齊、都含數字、幾乎全相異，例如 AT-114-001
+  function codeLike(c) {
+    var s2 = c.samples;
+    if (s2.length < 2) return false;
+    var lens = s2.map(function (v) { return v.length; });
+    var min = Math.min.apply(null, lens), max = Math.max.apply(null, lens);
+    return min >= 5 && max - min <= 2 &&
+           s2.every(function (v) { return /\d/.test(v); }) &&
+           c.distinct / Math.max(c.filled, 1) > 0.9;
+  }
+
   // 主標題欄：相異度高、不太長、不是日期或數字的那一欄，越靠左越優先
   function pickTitle(cols) {
     var cand = cols.filter(function (c) {
@@ -183,6 +199,7 @@
     cand.forEach(function (c, i) {
       c._score = c.distinct / Math.max(c.filled, 1)          // 越獨特越像標題
                - (c.type === 'longtext' ? 0.35 : 0)          // 長文字比較像內容
+               - (codeLike(c) ? 0.6 : 0)                     // 單號、編號不是給人讀的名稱
                - cols.indexOf(c) * 0.04;                     // 越左邊越優先
     });
     cand.sort(function (a, b) { return b._score - a._score; });
@@ -201,6 +218,20 @@
     var cat   = pick(cols, 'category');
     var title = pickTitle(cols);
 
+    // 有日期不等於是排程。帳表的日期幾乎每列都不同，按日期分組會變成
+    // 幾十組各一兩筆；那裡的主角是金額，不是時間軸。
+    var moneys = cols.filter(function (c) { return c.type === 'money'; });
+    if (date && moneys.length >= 2 && date.distinct / Math.max(date.filled, 1) > 0.45) {
+      var main = moneys.filter(function (c) { return /含稅|總|合計|應收|小計/.test(c.name); })[0] || moneys[moneys.length - 1];
+      var t2 = pickTitle(cols);
+      return {
+        shape: 'ledger', label: '帳務／明細表',
+        reason: '有日期欄「' + date.name + '」但幾乎每列都不同（' +
+                date.distinct + '/' + date.filled + '），且有 ' + moneys.length +
+                ' 欄金額，判定為明細帳而非排程',
+        group: null, lead: main, title: t2, person: null
+      };
+    }
     if (date) return {
       shape: 'schedule', label: '排程／時程表',
       reason: '偵測到日期欄「' + date.name + '」（' + date.reason + '）' +
@@ -345,6 +376,14 @@
   var RE_TOTAL = /^(總計|合計|小計|總和|加總|total|sum|subtotal)/i;
 
   /* 找標題列：滿、短、不重複、不是數字，而且下面幾列有資料 */
+  function dataCols(rows, from) {
+    var set = {};
+    rows.slice(from, from + 25).forEach(function (r) {
+      r.forEach(function (v, c) { if (!blank(v)) set[c] = 1; });
+    });
+    return set;
+  }
+
   function scoreHeader(rows, i, w) {
     var cells = rows[i].map(function (v) { return String(v).trim(); });
     var filled = cells.filter(function (v) { return v !== ''; });
@@ -364,10 +403,19 @@
         }, 0) / (below.length * w)
       : 0;
 
-    return (filled.length / w) * 2                        // 填得越滿越像標題
+    // 標題列應該蓋住下方真正有資料的欄位
+    var dc = dataCols(rows, i + 1), dcKeys = Object.keys(dc);
+    var hit = 0;
+    cells.forEach(function (v, c) { if (v !== '' && dc[c]) hit++; });
+    var coverage = dcKeys.length ? hit / dcKeys.length : 0;
+
+    // 涵蓋率權重要夠高：甘特圖的標題列本來就是月份數字（7、8、9），
+    // 「標題不該是數字」的扣分會蓋過一切，讓跨欄大標反而勝出。
+    return coverage * 4                                    // 標題該蓋住底下有資料的欄
+         + (filled.length / w) * 2                         // 填得越滿越像標題
          + Object.keys(uniq).length / filled.length        // 欄名不該重複
          + (avgLen <= 12 ? 1 : avgLen <= 20 ? 0.3 : -0.5)  // 標題通常短
-         - numish * 1.5                                    // 標題通常不是數字或日期
+         - numish                                          // 但數字標題是有的，扣分放輕
          + belowFill                                       // 下面要有資料
          - i * 0.08;                                       // 越前面越優先
   }
@@ -395,18 +443,92 @@
       if (r.every(blank)) return;
       var first = String(r.filter(function (v) { return !blank(v); })[0] || '').trim();
       if (RE_TOTAL.test(first)) { seenTotal = true; totals.push(r); return; }
+      // 夾在資料中間的小計：前兩欄（識別碼）空白，但後面數值欄有值。
+      // 這種列不是資料，也不代表表格結束——後面通常還有更多資料。
+      var idBlank = blank(r[0]) && (r.length < 2 || blank(r[1]));
+      var numFilled = r.slice(2).filter(function (v) {
+        return !blank(v) && /^[\d,.\-]+$/.test(String(v).trim());
+      }).length;
+      if (idBlank && numFilled >= 2) { totals.push(r); return; }
       if (seenTotal) { totals.push(r); return; }
       body.push(r);
     });
 
+    var header = rows[best].slice();
+    var notes = [];
+
+    var col = collapsePeriods(header, body);
+    if (col) { header = col.header; body = col.rows; notes.push(col.note); }
+
+    var fd = fillDownLabels(header, body);
+    if (fd.length) notes.push('向下填補合併儲存格：' + fd.join('、'));
+
     return {
       title: preamble.join(' · '),
       headerRow: best,
-      grid: [rows[best]].concat(body),
+      grid: [header].concat(body),
       totals: totals,
       skipped: preamble.length,
+      notes: notes,
       range: meta
     };
+  }
+
+  /* 甘特圖：日期散在一排時間軸欄位上，每列只落在其中一格。
+     那排欄位的「位置」和日期本身重複，收合成單一日期欄才讀得出來。 */
+  function collapsePeriods(header, rows) {
+    if (!rows.length) return null;
+    var n = header.length, dateish = [], c;
+    for (c = 0; c < n; c++) {
+      var vals = rows.map(function (r) { return String(r[c] == null ? '' : r[c]).trim(); })
+                     .filter(Boolean);
+      if (!vals.length) continue;
+      var ok = vals.filter(function (v) { return !!S.parseDateish(v); }).length / vals.length;
+      if (ok >= 0.8) dateish.push(c);
+    }
+    if (dateish.length < 3) return null;
+
+    var multi = rows.filter(function (r) {
+      return dateish.filter(function (c2) { return !blank(r[c2]); }).length > 1;
+    }).length;
+    if (multi / rows.length > 0.15) return null;      // 一列有多個日期就不是甘特圖
+
+    var keep = [];
+    for (c = 0; c < n; c++) {
+      if (dateish.indexOf(c) >= 0) continue;
+      var any = rows.some(function (r) { return !blank(r[c]); });
+      if (any || !blank(header[c])) keep.push(c);
+    }
+    return {
+      header: keep.map(function (c2) { return header[c2]; }).concat(['日期']),
+      rows: rows.map(function (r) {
+        var v = '';
+        dateish.forEach(function (c2) { if (!v && !blank(r[c2])) v = String(r[c2]).trim(); });
+        return keep.map(function (c2) { return r[c2]; }).concat([v]);
+      }),
+      note: '把散在 ' + dateish.length + ' 欄時間軸上的日期收合成單一「日期」欄'
+    };
+  }
+
+  /* 合併儲存格：分類只填在每組第一列，其餘留白。往下補齊才分得了組。 */
+  function fillDownLabels(header, rows) {
+    var done = [];
+    for (var c = 0; c < Math.min(header.length, 2); c++) {
+      var vals = rows.map(function (r) { return String(r[c] == null ? '' : r[c]).trim(); });
+      var filled = vals.filter(Boolean);
+      if (!filled.length) continue;
+      var uniq = {}; filled.forEach(function (v) { uniq[v] = 1; });
+      var distinct = Object.keys(uniq).length;
+      // 稀疏、少量相異值、且不是每列都有 → 典型的合併儲存格
+      if (filled.length / rows.length > 0.6 || distinct > 20 || distinct < 2) continue;
+      var last = '';
+      rows.forEach(function (r, i) {
+        if (vals[i]) last = vals[i];
+        else if (last) r[c] = last;
+      });
+      done.push(header[c] || ('欄 ' + (c + 1)));
+    }
+    return done;
   }
 
   /* 把一張工作表切成獨立的表格區塊 */
@@ -424,6 +546,23 @@
     var rowBlank = g.map(function (row) { return row.every(blank); });
 
     var colRuns = runs(colBlank), rowRuns = runs(rowBlank), tables = [];
+
+    // 空白欄不一定是表格分界：甘特圖的時間軸本來就很稀疏，
+    // 硬切會把一張表絞成好幾塊、欄名全變成「欄 1」。
+    // 只有當每一塊都找得到一列「大部分格子有字」的標題列時，才承認這是並排的獨立表格。
+    if (colRuns.length > 1) {
+      var ok = colRuns.every(function (cr) {
+        var width = cr[1] - cr[0] + 1;
+        if (width < 2) return false;
+        for (var i = 0; i < Math.min(h, 12); i++) {
+          var filled = 0;
+          for (var c = cr[0]; c <= cr[1]; c++) if (!blank(g[i][c])) filled++;
+          if (filled / width >= 0.6 && filled >= 2) return true;
+        }
+        return false;
+      });
+      if (!ok) colRuns = [[0, w - 1]];
+    }
 
     colRuns.forEach(function (cr) {
       var chunks = [];

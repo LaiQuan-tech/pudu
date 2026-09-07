@@ -60,6 +60,7 @@
   .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .struct{font-size:12px;color:var(--muted);margin:0 0 10px;display:flex;gap:5px 12px;flex-wrap:wrap}
   .struct b{color:var(--ink2);font-weight:600}
+  .struct .fix{color:var(--ok);background:var(--ok-bg);padding:1px 7px;border-radius:4px;font-weight:600}
   .out .totals{margin:10px 0 4px;padding:10px 12px;background:var(--gold-bg);border-radius:5px;
     display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
   .out .totals .tk{color:var(--gold);font-weight:600}
@@ -170,6 +171,8 @@
             <option value="pricelist">品項／價目表</option>
             <option value="directory">名冊／通訊錄</option>
             <option value="board">狀態清單</option>
+            <option value="ledger">帳務／明細表</option>
+            <option value="matrix">矩陣／報表</option>
             <option value="cards">一般表格</option>
           </select>
         </label>
@@ -336,6 +339,7 @@ function paint(){
   st.push('標題列：第 ' + (A.headerRow + 1) + ' 列');
   if(A.headerRow > 0) st.push('略過 ' + A.headerRow + ' 列前言');
   if(A.totals && A.totals.length) st.push('合計列 ' + A.totals.length + ' 條');
+  (A.notes || []).forEach(function(nt){ st.push('<span class="fix">' + esc(nt) + '</span>') });
   $('struct').innerHTML = st.join('<span style="opacity:.4">·</span>');
 
   $('cols').innerHTML = A.cols.map(function(c){
