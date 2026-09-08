@@ -192,11 +192,12 @@
     <div class="drop" id="drop">或把 .csv / .xlsx 檔案拖到這裡</div>
     <div class="samples">
       <span>範例：</span>
-      <button data-s="pudu">普渡排程（149 列）</button>
-      <button data-s="price">價目表</button>
-      <button data-s="people">通訊錄</button>
-      <button data-s="status">狀態清單</button>
-      <button data-s="plain">無結構表格</button>
+      <button data-s="pudu">普渡排程</button>
+      <button data-s="budget">個人預算表</button>
+      <button data-s="pnl">損益表</button>
+      <button data-s="invoice">發票</button>
+      <button data-s="daily">每日排程</button>
+      <button data-s="todo">購物清單</button>
     </div>
     <div class="msg" id="msg"></div>
   </div>
@@ -243,14 +244,18 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=22"></script>
+<script src="detect.js?v=23"></script>
 <script>
+var MS = 'https://createcatalog.public.onecdn.static.microsoft/catalog-assets/en-us/';
+// 全部是真實檔案。自編的乾淨範例會給人虛假的信心——
+// 今天一整天的判斷錯誤，沒有一個是自編範例抓到的。
 var SAMPLES = {
-  pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
-  price: '品項,分類,單價,備註\n光明燈,點燈,600,一年\n太歲燈,點燈,800,一年\n平安米,結緣品,100,\n環保金紙,金紙,250,一份三支\n祈福蠟燭,結緣品,50,\n斗燈,點燈,1200,含疏文',
-  people: '姓名,職稱,電話,Email,組別\n林雅玲,活動組長,0912345678,ya@example.com,活動組\n陳瑟君,總務,0923456789,se@example.com,行政組\n王藝鐘,護駕,0934567890,yi@example.com,護駕組\n李婉茹,誦經,0945678901,wan@example.com,誦經組',
-  status: '工作項目,狀態,負責人,備註\n訂購金紙,已完成,活動組,共五箱\n場地佈置,進行中,全體人員,\n印製手冊,未開始,行政組,等文稿\n聯絡外燴,進行中,蓴姐,120 份',
-  plain: '編號,說明,數量\nA001,不鏽鋼供桌,3\nA002,紅色板凳,120\nA003,遮陽帳篷,8\nA004,延長線,15'
+  pudu:    { url:'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit' },
+  budget:  { xlsx: MS+'011bc58a-7255-44cf-aa2a-c6a0850d08ec/TF011bc58a-7255-44cf-aa2a-c6a0850d08ecccb50fde_wac-8f4b0de17cd8.xlsx', name:'個人預算表.xlsx' },
+  pnl:     { xlsx: MS+'b3a410cc-f521-44c8-a72e-ab39815d9b4e/TFb3a410cc-f521-44c8-a72e-ab39815d9b4e0822a846_wac-0dd27a714bda.xlsx', name:'損益表.xlsx' },
+  invoice: { xlsx: MS+'cc8f8a79-96c3-4a3f-9398-5fdcfa9b27e9/TFcc8f8a79-96c3-4a3f-9398-5fdcfa9b27e93382434e_wac-6d730e0d4479.xlsx', name:'發票.xlsx' },
+  daily:   { xlsx: MS+'792c56ff-5931-4f2e-bbd3-a00d737f9b57/TF792c56ff-5931-4f2e-bbd3-a00d737f9b57f490ba94_wac-084bd93fcd07.xlsx', name:'每日排程.xlsx' },
+  todo:    { xlsx: MS+'e6ae6c3f-7542-4b5a-80ce-d131a04ae548/TFe6ae6c3f-7542-4b5a-80ce-d131a04ae54880b3e4b5_wac-034cc1abfa54.xlsx', name:'購物清單.xlsx' }
 };
 
 var $ = function(id){ return document.getElementById(id) };
@@ -312,21 +317,7 @@ function loadFile(file){
       return say('Excel 解析元件沒載入成功，請改用 .csv 或試算表網址。', true);
     fr.onload = function(e){
       try{
-        var wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
-        // 不能直接拿第一張工作表：範本的第一張常常是 Start／說明頁，
-        // 那樣使用者會看到一片空白。挑第一張真的有資料的。
-        var pick = null, skipped = [];
-        for(var i = 0; i < wb.SheetNames.length; i++){
-          var nm = wb.SheetNames[i];
-          var gr = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header:1, defval:'', raw:false });
-          var v = SheetShape.sheetVerdict(gr, SheetShape.analyseSheet(gr).tables);
-          if(v.show === true){ pick = { name:nm, grid:gr }; break; }
-          skipped.push(nm + '（' + v.why + '）');
-        }
-        if(!pick){ say('這個檔案裡找不到可讀的資料表。略過：' + skipped.join('、'), true); return; }
-        say(skipped.length ? '顯示工作表「' + pick.name + '」，略過 ' + skipped.length + ' 張非資料頁：' + skipped.join('、') : '');
-        sheetKey = 'file:' + file.name + ':' + pick.name;
-        run(pick.grid);
+        openWorkbook(XLSX.read(new Uint8Array(e.target.result), { type:'array' }), file.name);
       }catch(err){ say('這個 Excel 檔解析失敗：' + err.message, true) }
     };
     fr.readAsArrayBuffer(file);
@@ -334,6 +325,32 @@ function loadFile(file){
     fr.onload = function(e){ say(''); run(parseCSV(e.target.result)) };
     fr.readAsText(file, 'utf-8');
   }
+}
+
+/* 挑第一張真的有資料的工作表。範本的第一張常常是 Start／說明頁。 */
+function openWorkbook(wb, fname){
+  var pick = null, skipped = [];
+  for(var i = 0; i < wb.SheetNames.length; i++){
+    var nm = wb.SheetNames[i];
+    var gr = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header:1, defval:'', raw:false });
+    var v = SheetShape.sheetVerdict(gr, SheetShape.analyseSheet(gr).tables);
+    if(v.show === true){ pick = { name:nm, grid:gr }; break; }
+    skipped.push(nm + '（' + v.why + '）');
+  }
+  if(!pick){ say('這個檔案裡找不到可讀的資料表。略過：' + skipped.join('、'), true); return; }
+  say(skipped.length ? '顯示工作表「' + pick.name + '」，略過 ' + skipped.length + ' 張非資料頁：' + skipped.join('、') : '');
+  sheetKey = 'file:' + fname + ':' + pick.name;
+  run(pick.grid);
+}
+
+function loadXlsxUrl(url, name){
+  say('下載中…');
+  fetch(url).then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer() })
+    .then(function(buf){
+      if(typeof XLSX === 'undefined') throw new Error('Excel 解析元件沒載入成功');
+      openWorkbook(XLSX.read(new Uint8Array(buf), { type:'array' }), name);
+    })
+    .catch(function(e){ say('讀不到這個範本：' + e.message, true) });
 }
 
 /* ══ 分析並畫出來 ══ */
@@ -775,8 +792,8 @@ $('tabs').addEventListener('click', function(e){
 document.querySelectorAll('.samples button').forEach(function(b){
   b.addEventListener('click', function(){
     var v = SAMPLES[b.dataset.s];
-    if(v.indexOf('http') === 0){ $('url').value = v; loadUrl(v); }
-    else { $('url').value = ''; sheetKey = 'sample:' + b.dataset.s; say(''); run(parseCSV(v)); }
+    if(v.url){ $('url').value = v.url; loadUrl(v.url); }
+    else { $('url').value = ''; loadXlsxUrl(v.xlsx, v.name); }
   });
 });
 

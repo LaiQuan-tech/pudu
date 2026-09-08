@@ -904,6 +904,7 @@
 
   // 會計負數寫成 ($341.00)：左括號和貨幣符號會連在一起，
   // 只允許一個前置字元會漏掉個人預算表的 Difference。
+  var RE_IDLIKE = /(單號|編號|代號|序號|號碼|invoice\s*#|\bno\.?$|#$|\bid$)/i;
   var RE_NUMLIKE = /^\(?\s*[$€£¥＄]?\s*-?[\d,]+(\.\d+)?\s*[%)]?\s*\)?$/;
 
   function quotedFacts(grid, t) {
@@ -923,7 +924,8 @@
       var row = g[r];
       for (var c = 0; c < row.length; c++) {
         var lab = txt(row[c]);
-        if (!lab || lab.length > 70 || RE_NUMLIKE.test(lab)) continue;
+        // 單號、編號不是數量。引述它們只會佔掉摘要的位置。
+        if (!lab || lab.length > 70 || RE_NUMLIKE.test(lab) || RE_IDLIKE.test(lab)) continue;
         for (var d = 1; d <= 4 && c + d < row.length; d++) {
           var val = txt(row[c + d]);
           if (!val) continue;                       // 中間的空格跳過
@@ -945,7 +947,8 @@
         if (!val || !RE_NUMLIKE.test(val)) return;
         var colName = txt((t.header && t.header[c]) || (t.grid && t.grid[0] ? t.grid[0][c] : ''));
         var named = colName && !/^欄 \d+$/.test(colName);
-        if (!lab && !named) return;                 // 沒有列標籤也沒有欄名 → 這個數字說明不了什麼
+        if (!lab && !named) return;
+        if (RE_IDLIKE.test(lab) || RE_IDLIKE.test(colName)) return;                 // 沒有列標籤也沒有欄名 → 這個數字說明不了什麼
         var full = lab ? (named ? lab + ' · ' + colName : lab) : colName;
         push(full, val, 'total', 'T' + (i + 1) + 'C' + (c + 1));
       });
