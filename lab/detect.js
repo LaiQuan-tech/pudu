@@ -556,6 +556,36 @@
     return set;
   }
 
+  // 單格是不是「數值感」的東西（數字、金額、百分比、日期、時間）
+  function numericish(v) {
+    var t = String(v == null ? '' : v).trim();
+    if (!t) return false;
+    return /^[$€£¥＄]?\s*-?[\d,]+(\.\d+)?\s*%?$/.test(t) ||
+           !!S.parseDateish(t) || !!S.parseTimeish(t);
+  }
+
+  /* 標題列的格子，型別應該跟它底下那一欄不一樣。
+     這比「標題不該是數字」準得多：甘特圖的月份標題「7」底下是日期欄（型別不同，合理），
+     但 $3,500.00 底下是一整欄金額（型別相同，那只是被誤選的資料列）。 */
+  function typeContrast(rows, i, w) {
+    var score = 0, counted = 0;
+    for (var c = 0; c < w; c++) {
+      var head = rows[i][c];
+      if (blank(head)) continue;
+      var below = [], k;
+      for (k = i + 1; k < rows.length && below.length < 8; k++)
+        if (!blank(rows[k][c])) below.push(rows[k][c]);
+      if (below.length < 2) continue;
+
+      var belowNum = below.filter(numericish).length / below.length;
+      var headNum = numericish(head);
+      counted++;
+      if (headNum && belowNum >= 0.7) score -= 1;        // 數值標題配數值欄 → 多半是資料列
+      else if (!headNum && belowNum >= 0.7) score += 1;  // 文字標題配數值欄 → 典型的標題
+    }
+    return counted ? score / counted : 0;
+  }
+
   function scoreHeader(rows, i, w) {
     var cells = rows[i].map(function (v) { return String(v).trim(); });
     var filled = cells.filter(function (v) { return v !== ''; });
@@ -584,10 +614,11 @@
     // 涵蓋率權重要夠高：甘特圖的標題列本來就是月份數字（7、8、9），
     // 「標題不該是數字」的扣分會蓋過一切，讓跨欄大標反而勝出。
     return coverage * 4                                    // 標題該蓋住底下有資料的欄
+         + typeContrast(rows, i, w) * 2.5                   // 型別要跟底下那一欄不一樣
          + (filled.length / w) * 2                         // 填得越滿越像標題
          + Object.keys(uniq).length / filled.length        // 欄名不該重複
          + (avgLen <= 12 ? 1 : avgLen <= 20 ? 0.3 : -0.5)  // 標題通常短
-         - numish                                          // 但數字標題是有的，扣分放輕
+         - numish * 0.5                                     // 數字標題是有的，這條只留微弱訊號
          + belowFill                                       // 下面要有資料
          - i * 0.08;                                       // 越前面越優先
   }
@@ -761,16 +792,15 @@
       });
       if (!chunks.length) return;
 
-      // 第一個夠大的區塊是主表，後面矮的（合計、註腳）併回去
-      var main = null;
-      chunks.forEach(function (ch) {
-        if (!main && ch.rows.length >= 3) {
-          main = ch;
-        } else if (main) {
-          main.rows = main.rows.concat([new Array(main.rows[0].length).fill('')], ch.rows);
-        }
+      // 空白列在報表裡多半只是間隔，不是表格邊界——把同一組欄位裡的區塊全部接回來。
+      // 舊寫法只從「第一個 ≥3 列的區塊」開始收，前面的整段被丟掉；
+      // 現金流量表的空白列把它切成 [0-1][3][6-7][9][11...]，
+      // 真正的標題列（Feb 2023 | Mar 2023 …）在第三塊，於是連同前面一起消失。
+      var main = { rows: [], r0: chunks[0].r0 };
+      chunks.forEach(function (ch, k) {
+        if (k) main.rows.push(new Array(ch.rows[0].length).fill(''));
+        main.rows = main.rows.concat(ch.rows);
       });
-      if (!main) main = chunks[0];
 
       var t = buildTable(main.rows, { c0: cr[0], c1: cr[1], r0: main.r0 });
       if (t.grid.length >= 2 && t.grid[0].length >= 2) tables.push(t);
