@@ -73,7 +73,7 @@ function expand(args) {
 }
 
 /* ── 體檢：哪些結果值得懷疑 ── */
-function checkup(a) {
+function checkup(a, srcRows) {
   const flags = [];
   const rows = a.rows.length;
   const live = a.cols.filter(c => c.type !== 'empty');
@@ -108,6 +108,25 @@ function checkup(a) {
   if (rows === 0) flags.push('沒有任何資料列');
   if (rows === 1) flags.push('只有一列資料，判斷幾乎沒有依據');
 
+  // 從 40 列的工作表只抽出 2 列，多半是結構判壞了而不是資料真的只有兩列
+  if (srcRows && rows > 0 && rows < srcRows * 0.2 && srcRows >= 10)
+    flags.push(`原始工作表有 ${srcRows} 列，只抽出 ${rows} 列，結構可能判壞`);
+
+  // 大半欄位是空的，通常是欄位邊界抓錯。
+  // 但矩陣報表例外：請假表整年沒請假時「事假／病假」本來就整欄空白，
+  // 那是正常資料，而且引擎刻意保留這些欄以維持形狀穩定。
+  const empties = a.cols.length - live.length;
+  if (a.shape.shape !== 'matrix' && a.cols.length >= 4 && empties > a.cols.length * 0.5)
+    flags.push(`${empties}/${a.cols.length} 欄整欄空白，欄位邊界可能抓錯`);
+
+  // 判成排程但日期幾乎每列都不同、又有金額欄 → 多半是明細帳不是行程
+  if (a.shape.shape === 'schedule' && a.roles.group && a.roles.group.type === 'date') {
+    const uniq = a.roles.group.distinct / Math.max(a.roles.group.filled, 1);
+    const hasMoney = live.some(c => c.type === 'money');
+    if (uniq > 0.8 && hasMoney)
+      flags.push('判成排程，但日期幾乎每列都不同且有金額欄，可能其實是明細帳');
+  }
+
   return flags;
 }
 
@@ -139,7 +158,7 @@ for (const src of args) {
     }
 
     tables.forEach((a, i) => {
-      const flags = checkup(a);
+      const flags = checkup(a, sh.grid.length);
       const tag = tables.length > 1 ? ` [表${i + 1}/${tables.length}]` : '';
       shapes[a.shape.label] = (shapes[a.shape.label] || 0) + 1;
       if (flags.length) {

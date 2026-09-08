@@ -234,7 +234,12 @@
     // 有日期不等於是排程。帳表的日期幾乎每列都不同，按日期分組會變成
     // 幾十組各一兩筆；那裡的主角是金額，不是時間軸。
     var moneys = cols.filter(function (c) { return c.type === 'money'; });
-    if (date && moneys.length >= 2 && date.distinct / Math.max(date.filled, 1) > 0.45) {
+    // 只有一欄金額也可能是明細帳：零用金支出表就是日期／內容／金額／說明／專案。
+    // 兩欄以上放寬到 0.45，只有一欄時要求日期幾乎全相異（0.8）才算，
+    // 避免把「有預算欄的活動排程」誤判成帳表。
+    var uniqDate = date ? date.distinct / Math.max(date.filled, 1) : 0;
+    if (date && ((moneys.length >= 2 && uniqDate > 0.45) ||
+                 (moneys.length === 1 && uniqDate > 0.8))) {
       var main = moneys.filter(function (c) { return /含稅|總|合計|應收|小計/.test(c.name); })[0] || moneys[moneys.length - 1];
       var t2 = pickTitle(cols);
       return {
