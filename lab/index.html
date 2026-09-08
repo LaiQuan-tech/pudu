@@ -235,7 +235,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=18"></script>
+<script src="detect.js?v=19"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -372,9 +372,11 @@ function askGrouping(saved){
 function fillOverrides(){
   var live = A.cols.filter(function(c){ return c.type !== 'empty' });
   var g = $('ovGroup'), t = $('ovTitle');
-  g.innerHTML = '<option value="">自動</option><option value="__none__">不分組</option>' +
+  var autoG = A.roles.group ? A.roles.group.name : '不分組';
+  var autoT = A.roles.title ? A.roles.title.name : '無';
+  g.innerHTML = '<option value="">自動（' + esc(autoG) + '）</option><option value="__none__">不分組</option>' +
     live.map(function(c){ return '<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>' }).join('');
-  t.innerHTML = '<option value="">自動</option>' +
+  t.innerHTML = '<option value="">自動（' + esc(autoT) + '）</option>' +
     live.map(function(c){ return '<option value="'+esc(c.name)+'">'+esc(c.name)+'</option>' }).join('');
   $('ovShape').value = ''; g.value = ''; t.value = '';
 }
@@ -391,7 +393,9 @@ function effective(){
   var shape = Object.assign({}, A.shape);
   var byName = function(n){ return A.cols.filter(function(c){ return c.name === n })[0] || null };
   var os = $('ovShape').value, og = $('ovGroup').value, ot = $('ovTitle').value;
-  if(os) shape.shape = os;
+  var live0 = A.cols.filter(function(c){ return c.type !== 'empty' });
+  // 只換名字沒有用：渲染是看角色決定的，換版面必須連角色一起重算
+  if(os) shape = SheetShape.shapeAs(live0, A.cols, os);
   if(og === '__none__') shape.group = null; else if(og) shape.group = byName(og);
   if(ot) shape.title = byName(ot);
   var live = A.cols.filter(function(c){ return c.type !== 'empty' });

@@ -294,6 +294,39 @@
     };
   }
 
+  var SHAPE_LABEL = {
+    schedule: '排程／時程表', pricelist: '品項／價目表', directory: '名冊／通訊錄',
+    board: '狀態清單', matrix: '矩陣／報表', ledger: '帳務／明細表', cards: '一般表格'
+  };
+
+  /* 手動指定版面時，角色要跟著重算。
+     只改形狀的名字沒有用——渲染是看角色（哪欄分組、哪欄前導、哪欄標題）決定的，
+     名字換了角色沒動，六種版面會渲染出一模一樣的畫面。 */
+  function shapeAs(cols, allCols, name) {
+    var date = pick(cols, 'date'), time = pick(cols, 'time');
+    var money = pick(cols, 'money'), status = pick(cols, 'status');
+    var cat = pick(cols, 'category'), person = pick(cols, 'person');
+    var title = pickTitle(cols);
+    var base = { shape: name, label: SHAPE_LABEL[name] || name, reason: '手動指定版面',
+                 group: null, lead: null, title: title, person: person };
+
+    if (name === 'schedule') { base.group = date; base.lead = time; }
+    else if (name === 'pricelist') { base.group = cat; base.lead = money; }
+    else if (name === 'directory') { base.group = cat; }
+    else if (name === 'board') { base.group = status || cat; }
+    else if (name === 'ledger') {
+      var moneys = cols.filter(function (c) { return c.type === 'money'; });
+      base.lead = moneys.filter(function (c) { return /含稅|總|合計|應收|小計/.test(c.name); })[0] ||
+                  moneys[moneys.length - 1] || null;
+    } else if (name === 'matrix') {
+      base.matrix = true;
+      base.title = (allCols || cols)[0] || title;
+    } else {
+      base.group = cat;                             // cards
+    }
+    return base;
+  }
+
   /* ══ 角色指派：形狀決定每欄怎麼呈現 ══ */
 
   function assignRoles(cols, shape) {
@@ -459,6 +492,7 @@
 
   root.SheetShape = {
     isNoise: function (c) { return serialLike(c) || codeLike(c); },
+    shapeAs: shapeAs,
     groupOptions: groupOptions,
     filterOptions: filterOptions,
     tokenizeCell: tokenizeCell,
