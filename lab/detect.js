@@ -811,6 +811,57 @@
 
   S.findTables = findTables;
 
+  /* 這張工作表值不值得渲染給人看？
+     一個活頁簿裡有資料表，也有說明頁、下拉選單來源、圖表暫存區、公式彙總頁。
+     原則是保守：藏掉一張真的資料表，比多顯示一張垃圾更糟，
+     所以只有在明顯不是表格時才排除。 */
+  function sheetVerdict(grid, tables) {
+    var g = normalize(grid || []);
+    var filled = g.filter(function (r) { return r.some(function (v) { return !blank(v); }); });
+    if (!filled.length) return { show: false, why: '整張工作表空白' };
+
+    tables = tables || [];
+    if (!tables.length) return { show: false, why: '切不出任何表格區塊' };
+
+    var main = tables.reduce(function (a, b) { return b.rows.length > a.rows.length ? b : a; });
+    if (main.rows.length < 2) return { show: false, why: '只有 ' + main.rows.length + ' 列資料' };
+
+    var live = main.cols.filter(function (c) { return c.type !== 'empty'; });
+    if (!live.length) return { show: false, why: '沒有任何有值的欄位' };
+
+    // 欄名全是數字或空的 → 圖表資料區、控制列殘骸這類東西
+    var named = main.header.filter(function (h) {
+      var t = String(h == null ? '' : h).trim();
+      return t && !/^欄 \d+$/.test(t) &&
+             !/^[$€£¥＄]?\s*-?[\d,]+(\.\d+)?\s*%?$/.test(t) && !S.parseDateish(t);
+    }).length;
+    if (!named) return { show: false, why: '沒有任何文字欄名，像圖表資料區或控制列' };
+
+    var avgLen = live.reduce(function (a, c) { return a + c.avgLen; }, 0) / live.length;
+    var headLen = main.header.filter(function (h) { return !blank(h); })
+      .reduce(function (a, h, i, arr) { return a + String(h).trim().length / arr.length; }, 0);
+
+    // 說明頁：欄名本身就是句子。
+    // 不能只看資料長不長——待辦清單的「Done | Task」欄名很短、內容很長，
+    // 那是不折不扣的資料表，而且正是手機最該讀的東西。
+    if (live.length <= 2 && headLen > 20)
+      return { show: false, why: '欄名本身就是句子，像說明頁' };
+    if (live.length <= 1 && avgLen > 25)
+      return { show: false, why: '只有一欄長文字，像說明頁' };
+
+    // 下拉選單的來源清單：一兩欄「短文字」，沒有任何數值欄。
+    // 有金額或數字就是真資料（例如 品項 | 金額 的支出清單）。
+    var hasValue = live.some(function (c) {
+      return ['money', 'number', 'date', 'time'].indexOf(c.type) >= 0;
+    });
+    if (live.length <= 2 && !hasValue && main.rows.length >= 3 && avgLen <= 12)
+      return { show: 'weak', why: '只有一兩欄短文字且無數值，像下拉選單的來源清單' };
+
+    return { show: true, why: '' };
+  }
+
+  S.sheetVerdict = sheetVerdict;
+
   /* 包一層：先切表，再對每一塊做原本的判型 */
   S.analyseSheet = function (grid) {
     var tables = findTables(grid);

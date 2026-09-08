@@ -140,7 +140,7 @@ if (!args.length) {
   process.exit(1);
 }
 
-let clean = 0, flagged = 0, broken = 0;
+let clean = 0, flagged = 0, broken = 0, skipped = 0;
 const shapes = {}, allFlags = {};
 
 for (const src of args) {
@@ -153,8 +153,12 @@ for (const src of args) {
     try { tables = SheetShape.analyseSheet(sh.grid).tables; }
     catch (e) { broken++; console.log(`\n${C.r('✗')} ${sh.name}\n  ${C.r('引擎爆掉：' + e.message)}`); continue; }
 
-    if (!tables.length) {
-      broken++; console.log(`\n${C.r('✗')} ${sh.name}\n  ${C.r('找不到任何表格區塊')}`); continue;
+    // 說明頁、下拉選單來源、圖表暫存區不是「壞掉」，是本來就不該渲染
+    const v = SheetShape.sheetVerdict(sh.grid, tables);
+    if (v.show !== true) {
+      skipped++;
+      console.log(`${C.d('–')} ${C.d(sh.name)} ${C.d(v.why)}`);
+      continue;
     }
 
     tables.forEach((a, i) => {
@@ -176,7 +180,7 @@ for (const src of args) {
 }
 
 console.log('\n' + '='.repeat(66));
-console.log(C.b(`${clean} 乾淨 · ${flagged} 可疑 · ${broken} 讀不進來`));
+console.log(C.b(`${clean} 乾淨 · ${flagged} 可疑 · ${skipped} 非資料頁（略過） · ${broken} 讀不進來`));
 console.log(C.d('形狀分佈：' + Object.entries(shapes).map(([k, v]) => `${k} ${v}`).join('、')));
 if (Object.keys(allFlags).length) {
   console.log(C.d('最常見的問題：'));

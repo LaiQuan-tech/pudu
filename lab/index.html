@@ -235,7 +235,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=19"></script>
+<script src="detect.js?v=20"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -305,8 +305,20 @@ function loadFile(file){
     fr.onload = function(e){
       try{
         var wb = XLSX.read(new Uint8Array(e.target.result), { type:'array' });
-        var ws = wb.Sheets[wb.SheetNames[0]];
-        say(''); run(XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:false }));
+        // 不能直接拿第一張工作表：範本的第一張常常是 Start／說明頁，
+        // 那樣使用者會看到一片空白。挑第一張真的有資料的。
+        var pick = null, skipped = [];
+        for(var i = 0; i < wb.SheetNames.length; i++){
+          var nm = wb.SheetNames[i];
+          var gr = XLSX.utils.sheet_to_json(wb.Sheets[nm], { header:1, defval:'', raw:false });
+          var v = SheetShape.sheetVerdict(gr, SheetShape.analyseSheet(gr).tables);
+          if(v.show === true){ pick = { name:nm, grid:gr }; break; }
+          skipped.push(nm + '（' + v.why + '）');
+        }
+        if(!pick){ say('這個檔案裡找不到可讀的資料表。略過：' + skipped.join('、'), true); return; }
+        say(skipped.length ? '顯示工作表「' + pick.name + '」，略過 ' + skipped.length + ' 張非資料頁：' + skipped.join('、') : '');
+        sheetKey = 'file:' + file.name + ':' + pick.name;
+        run(pick.grid);
       }catch(err){ say('這個 Excel 檔解析失敗：' + err.message, true) }
     };
     fr.readAsArrayBuffer(file);
