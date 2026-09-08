@@ -235,7 +235,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=20"></script>
+<script src="detect.js?v=21"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -337,8 +337,9 @@ function run(rows){
   var t = $('tabs');
   t.hidden = TABLES.length < 2;
   t.innerHTML = TABLES.length < 2 ? '' : TABLES.map(function(a, i){
+    var nm = a.name || (a.title ? a.title.split('·')[0].trim() : '');
     return '<button type="button" data-i="' + i + '" class="' + (i ? '' : 'on') + '">' +
-           esc(a.title ? a.title.split('·')[0].trim() : ('表 ' + (i + 1))) + '</button>';
+           esc(nm || ('表 ' + (i + 1))) + '</button>';
   }).join('');
   if(TABLES.length > 1) say('這張工作表上並排著 ' + TABLES.length + ' 個獨立表格，已自動切開。');
   $('split').hidden = false;
@@ -515,7 +516,7 @@ function renderRails(){
     var t = document.createElement('div');
     t.className = 'orail tables';
     t.innerHTML = TABLES.map(function(a, i){
-      var name = a.title ? a.title.split('·')[0].trim() : ('表 ' + (i+1));
+      var name = a.name || (a.title ? a.title.split('·')[0].trim() : '') || ('表 ' + (i+1));
       return '<button type="button" data-t="' + i + '" class="' + (i === cur ? 'on' : '') + '">' +
              esc(name) + '</button>';
     }).join('');
@@ -593,7 +594,10 @@ function renderPage(shape, roles){
     recs = recs.filter(function(rec){
       return vals.some(function(c){ return cell(rec.r, c) !== '' });
     });
-    if(A.title) head += '<p class="doc-title">' + esc(A.title) + '</p>';
+    if(A.title){
+      var segs = A.title.split('·').map(function(x){ return x.trim() }).filter(Boolean);
+      head += '<p class="doc-title">' + esc(segs.slice(-2).join(' · ')) + '</p>';
+    }
     if(A.totals && A.totals.length){
       var tr = A.totals[0], parts = [];
       A.cols.forEach(function(c, i){

@@ -677,7 +677,15 @@
     var fd = fillDownLabels(header, body);
     if (fd.length) notes.push('向下填補合併儲存格：' + fd.join('、'));
 
+    // 表格的名字取前言的最後一段——那通常是緊貼標題列上方的區塊標題
+    // （例如 Entertainment），而不是更上面的公司抬頭或摘要金額。
+    // 純數字的段落跳過：個人預算表右半部的前言是「$3,405.00 · $3,064.00 · Entertainment」，
+    // 取第一段會讓分頁叫「$3,405.00」。
+    var named = preamble.filter(function (t) {
+      return !/^[$€£¥＄(]?\s*-?[\d,]+(\.\d+)?\s*[%)]?$/.test(t.trim());
+    });
     return {
+      name: named.length ? named[named.length - 1] : '',
       title: preamble.join(' · '),
       headerRow: best,
       grid: [header].concat(body),
@@ -783,7 +791,11 @@
       var ok = colRuns.every(function (cr) {
         var width = cr[1] - cr[0] + 1;
         if (width < 2) return false;
-        for (var i = 0; i < Math.min(h, 12); i++) {
+        // 窗口要跟標題列搜尋一致（30 列）。停在 12 會拒絕合法的切割：
+        // 個人預算表左右並排兩個區塊，右邊的標題在第 14 列，
+        // 於是兩區塊被併成一張表，渲染出「Video/DVD $1,000」這種
+        // 把房貸金額配到影音項目上的錯誤——比空白頁更糟。
+        for (var i = 0; i < Math.min(h, 30); i++) {
           var filled = 0;
           for (var c = cr[0]; c <= cr[1]; c++) if (!blank(g[i][c])) filled++;
           if (filled / width >= 0.6 && filled >= 2) return true;
@@ -882,6 +894,7 @@
         var a = S.analyse(t.grid);
         if (a) {
           a.title = t.title;
+          a.name = t.name;
           a.headerRow = t.headerRow;
           a.totals = t.totals;
           a.notes = t.notes || [];      // 做過哪些結構轉換，要讓使用者看得到
