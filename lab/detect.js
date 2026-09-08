@@ -605,15 +605,19 @@
         }, 0) / (below.length * w)
       : 0;
 
-    // 標題列應該蓋住下方真正有資料的欄位
-    var dc = dataCols(rows, i + 1), dcKeys = Object.keys(dc);
+    // 標題列應該蓋住整張表有資料的欄位。
+    // 分母必須是「整張表」而不是「這一列底下」：愈晚的候選底下剩的資料愈少，
+    // 資料欄集合跟著縮小，涵蓋率就輕易衝到 1.0。
+    // 窗口從 12 放寬到 30 之後，甘特圖的標題列因此從第 1 列跑到第 29 列。
+    var dc = dataCols(rows, 1), dcKeys = Object.keys(dc);
     var hit = 0;
     cells.forEach(function (v, c) { if (v !== '' && dc[c]) hit++; });
     var coverage = dcKeys.length ? hit / dcKeys.length : 0;
 
+
     // 涵蓋率權重要夠高：甘特圖的標題列本來就是月份數字（7、8、9），
     // 「標題不該是數字」的扣分會蓋過一切，讓跨欄大標反而勝出。
-    return coverage * 4                                    // 標題該蓋住底下有資料的欄
+    return coverage * 4                                    // 標題該蓋住整張表有資料的欄
          + typeContrast(rows, i, w) * 2.5                   // 型別要跟底下那一欄不一樣
          + (filled.length / w) * 2                         // 填得越滿越像標題
          + Object.keys(uniq).length / filled.length        // 欄名不該重複
@@ -626,7 +630,10 @@
   function buildTable(rows, meta) {
     var w = rows[0].length;
     var best = 0, bestScore = -Infinity;
-    var limit = Math.min(rows.length, 12);
+    // 搜尋窗口 30 列：財務報表常有摘要區塊擋在真正的欄位標題前面。
+    // 個人預算表的「Category | Projected cost | Actual cost」在第 14 列，
+    // 窗口 12 完全搜不到。實測 12→18.2%、20→13.8%、30→13.5%，30 之後持平。
+    var limit = Math.min(rows.length, 30);
     for (var i = 0; i < limit; i++) {
       var sc = scoreHeader(rows, i, w);
       if (sc > bestScore) { bestScore = sc; best = i; }
@@ -641,11 +648,16 @@
 
     // 只有一格有值的列不能當成合計：請假表裡「3月」沒請假就是這種樣子，那是正常資料。
     // 改成碰到「總計/合計」之後的所有列才算尾巴。
-    var body = [], totals = [], seenTotal = false;
+    // 小計是一種列，不是終止符。
+    // 舊寫法碰到第一個「總計」就把後面全部當成表尾——
+    // 但財務報表的小計散佈在整份文件裡：個人預算表第 6 列是
+    // 「Total monthly income」，那是摘要裡的一筆正常資料，
+    // 結果後面 75 列全被丟掉，整張表憑空消失。
+    var body = [], totals = [];
     rows.slice(best + 1).forEach(function (r) {
       if (r.every(blank)) return;
       var first = String(r.filter(function (v) { return !blank(v); })[0] || '').trim();
-      if (RE_TOTAL.test(first)) { seenTotal = true; totals.push(r); return; }
+      if (RE_TOTAL.test(first)) { totals.push(r); return; }
       // 夾在資料中間的小計：前兩欄（識別碼）空白，但後面數值欄有值。
       // 這種列不是資料，也不代表表格結束——後面通常還有更多資料。
       var idBlank = blank(r[0]) && (r.length < 2 || blank(r[1]));
@@ -653,7 +665,6 @@
         return !blank(v) && /^[\d,.\-]+$/.test(String(v).trim());
       }).length;
       if (idBlank && numFilled >= 2) { totals.push(r); return; }
-      if (seenTotal) { totals.push(r); return; }
       body.push(r);
     });
 
