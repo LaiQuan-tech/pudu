@@ -639,6 +639,7 @@
       if (sc > bestScore) { bestScore = sc; best = i; }
     }
 
+    var preambleRows = rows.slice(0, best);
     var preamble = rows.slice(0, best)
       .map(function (r) {
         return r.map(function (v) { return String(v).replace(/\s+/g, ' ').trim(); })
@@ -687,6 +688,7 @@
     return {
       name: named.length ? named[named.length - 1] : '',
       title: preamble.join(' · '),
+      preambleRows: preambleRows,
       headerRow: best,
       grid: [header].concat(body),
       totals: totals,
@@ -826,12 +828,75 @@
       });
 
       var t = buildTable(main.rows, { c0: cr[0], c1: cr[1], r0: main.r0 });
-      if (t.grid.length >= 2 && t.grid[0].length >= 2) tables.push(t);
+      if (!(t.grid.length >= 2 && t.grid[0].length >= 2)) return;
+
+      // 欄名重複 → 這其實是好幾張並排的表，切開才不會把數字配錯項目
+      var k = headerPeriod(t.grid[0]);
+      if (k) {
+        for (var off = 0; off < t.grid[0].length; off += k) {
+          var slice = t.grid.map(function (r) { return r.slice(off, off + k); });
+          if (!slice.slice(1).some(function (r) { return r.some(function (v) { return !blank(v); }); })) continue;
+          // 前言也是橫向並排的，要跟著切，否則兩張表會共用「114年度…115年度…」
+          var pre = (t.preambleRows || []).map(function (r) {
+            return r.slice(off, off + k).map(function (v) {
+              return String(v).replace(/\s+/g, ' ').trim();
+            }).filter(Boolean).join(' · ');
+          }).filter(Boolean);
+          var preNamed = pre.filter(function (x) {
+            return !/^[$€£¥＄(]?\s*-?[\d,]+(\.\d+)?\s*[%)]?$/.test(x.trim());
+          });
+          tables.push({
+            name: preNamed.length ? preNamed[preNamed.length - 1] : t.name,
+            title: pre.length ? pre.join(' · ') : t.title,
+            headerRow: t.headerRow,
+            grid: slice, totals: t.totals.map(function (r) { return r.slice(off, off + k); }),
+            skipped: t.skipped, notes: (t.notes || []).concat(['依重複的欄名切成並排的表格']),
+            range: { c0: cr[0] + off, c1: cr[0] + off + k - 1, r0: main.r0 }
+          });
+        }
+        return;
+      }
+      tables.push(t);
     });
 
     return tables;
   }
 
+  /* 欄名重複的週期。並排的表格之間不一定有空白欄可切：
+     孫偉勛的請假表是 月份|特休|事假|病假|勞保|月份|特休|事假|病假|勞保，
+     E 欄是左邊的勞保、F 欄直接是右邊的月份，中間沒有縫。
+     這時欄名本身的重複就是切點。 */
+  function headerPeriod(header) {
+    var h = header.map(function (x) {
+      var t = String(x == null ? '' : x).replace(/\s+/g, ' ').trim();
+      return /^欄 \d+$/.test(t) ? '' : t;          // 自動編號視同空白
+    });
+    var n = h.length;
+    if (!h[0]) return 0;                           // 第一欄是列標籤（月份、Category…），沒有就沒得比
+
+    // 上限不能設 n/2：最後一塊不完整時週期會超過一半。
+    // 林哲良的表是 9 欄（右半邊少一欄），週期 5 > 9/2，原本永遠試不到。
+    for (var k = 2; k <= n - 2; k++) {
+      // 錨點：每個週期的開頭都要等於第一欄。這條最能擋掉巧合的重複。
+      var anchored = true;
+      for (var c = k; c < n; c += k) if (h[c] !== h[0]) { anchored = false; break; }
+      if (!anchored) continue;
+
+      // 不要求整除也不要求完全相同：
+      // 林哲良的右半邊少一欄（9 欄不能被 5 整除）；
+      // 詹蕙菁三個年度並排，但每年請的假別不同（病假 vs 生理假）。
+      var hit = 0, cmp = 0;
+      for (var i = k; i < n; i++) { cmp++; if (h[i] === h[i % k]) hit++; }
+      if (cmp < 2 || hit / cmp < 0.7) continue;   // 至少要有兩欄可比，否則沒有說服力
+
+      var named = 0;
+      for (var j = 0; j < k; j++) if (h[j]) named++;
+      if (named >= 2) return k;                    // 至少兩個有名字的欄，否則是巧合
+    }
+    return 0;
+  }
+
+  S.headerPeriod = headerPeriod;
   S.findTables = findTables;
 
   /* 這張工作表值不值得渲染給人看？
