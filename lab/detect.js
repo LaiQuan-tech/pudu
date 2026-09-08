@@ -954,6 +954,44 @@
     return out;
   }
 
+  /* 把引述壓成能放進手機一屏的摘要。
+     帳表抽出 24 條但只有 12 個不重複的數字——同一個值掛在不同標籤下
+     （小計與總計、不同年度的區段），全列出來等於沒有摘要。 */
+  var RE_TOP  = /總計|合計|總額|餘額|balance|grand\s*total/i;
+  var RE_DIFF = /差異|淨|difference|net(?!\w)/i;
+  var RE_SUB2 = /小計|subtotal/i;
+
+  function summarise(facts, limit) {
+    // 只有「欄位相同」才合併同一個數值。
+    // 個人預算表的 Income 1 與 Total monthly income 都是 $4,300，
+    // 但那是兩件不同的事剛好相等，併起來會誤導。
+    var colOf = function (l) { var i = l.lastIndexOf(' · '); return i < 0 ? '' : l.slice(i + 3); };
+    var byKey = {};
+    facts.forEach(function (f) {
+      // 沒有欄位部分（前言的事實）就以自己的標籤為鍵，彼此不合併——
+      // 只有「同一欄的同一個數字」才是真的重複。
+      var k = f.value.replace(/\s/g, '') + '\u0000' + (colOf(f.label) || f.label);
+      (byKey[k] = byKey[k] || { value: f.value, labels: [], kind: f.kind, at: f.at }).labels.push(f.label);
+    });
+
+    var rows = Object.keys(byKey).map(function (k) {
+      var e = byKey[k], seen = {}, labels = [];
+      e.labels.forEach(function (l) { if (!seen[l]) { seen[l] = 1; labels.push(l); } });
+      var joined = labels.join(' / ');
+      var zero = /^[^\d-]*0([.,]0+)?[^\d]*$/.test(e.value);   // 0 是最沒資訊量的數字
+      var rank = RE_TOP.test(joined) ? 0
+               : RE_DIFF.test(joined) ? 1
+               : RE_SUB2.test(joined) ? 3
+               : e.kind === 'preamble' ? 2 : 4;
+      return { value: e.value, labels: labels, label: joined, kind: e.kind, at: e.at,
+               rank: rank + (zero ? 3 : 0), n: labels.length };
+    });
+
+    rows.sort(function (a, b) { return a.rank - b.rank || b.n - a.n; });
+    return limit ? rows.slice(0, limit) : rows;
+  }
+
+  S.summarise = summarise;
   S.quotedFacts = quotedFacts;
   S.headerPeriod = headerPeriod;
   S.findTables = findTables;

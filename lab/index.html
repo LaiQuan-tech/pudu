@@ -130,6 +130,14 @@
   .orail button.now.on{color:var(--paper)}
   .orail.tables button.on{background:var(--gold);border-color:var(--gold)}
   .out{padding:16px 14px 40px;color:var(--pink);font-size:15px;line-height:1.65}
+  .out .quote{margin:0 0 10px;padding:11px 12px;background:var(--card);
+    border:1px solid var(--prule);border-radius:5px}
+  .out .quote h4{margin:0 0 7px;font-size:10.5px;letter-spacing:.14em;color:var(--pmuted);font-weight:700}
+  .out .quote dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline}
+  .out .quote dt{font-family:"Noto Serif TC",serif;font-size:15px;font-weight:700;
+    font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--pink)}
+  .out .quote dd{margin:0;font-size:12px;color:var(--pmuted);line-height:1.45}
+  .out .quote .src{font-size:10px;opacity:.6;margin-left:4px}
   .out .upnext{display:grid;grid-template-columns:repeat(auto-fit,minmax(84px,1fr));gap:1px;
     background:var(--prule);border:1px solid var(--prule);border-radius:4px;overflow:hidden;margin:0 0 4px}
   .out .upnext button{all:unset;background:var(--card);padding:9px 10px 10px;cursor:pointer;
@@ -235,7 +243,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=21"></script>
+<script src="detect.js?v=22"></script>
 <script>
 var SAMPLES = {
   pudu: 'https://docs.google.com/spreadsheets/d/1b72qwLM_0xUdisA2uKxqUa98-EJwC-UJPyXsEaLJoiI/edit',
@@ -638,6 +646,19 @@ function renderPage(shape, roles){
   window.__groups = roles.group
     ? groups.map(function(g){ return { key:g.key, label:g.label, sub:g.sub, count:g.rows.length } })
     : [];
+
+  // 摘要：只引述表上原本就寫著的數字，不自己加總
+  if(raw && SheetShape.quotedFacts && SheetShape.summarise){
+    try{
+      var qf = SheetShape.summarise(SheetShape.quotedFacts(raw, A), 6);
+      if(qf.length){
+        head += '<div class="quote"><h4>摘要 · 引述自表上</h4><dl>' + qf.map(function(f){
+          return '<dt>' + esc(f.value) + '</dt><dd>' + esc(f.label) +
+                 '<span class="src">' + esc(f.at) + '</span></dd>';
+        }).join('') + '</dl></div>';
+      }
+    }catch(e){ /* 摘要失敗不該影響明細 */ }
+  }
 
   // 「接下來三天」：比軌道更粗的一層導覽，不用滑就看到近期各有幾件事。
   // 只有日期軸有意義——帳表、請假表沒有「接下來」可言。
