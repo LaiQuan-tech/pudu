@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>表格形狀偵測 · 驗證台</title>
+<title>CellFlow</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@700;900&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
   :root{
@@ -24,11 +24,11 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
     font:14px/1.6 "Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC",sans-serif}
-  .wrap{max-width:1180px;margin:0 auto;padding:22px 18px 60px}
+  .wrap{max-width:560px;margin:0 auto;padding:20px 16px 60px}
   code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
 
-  header h1{font-family:"Noto Serif TC",serif;font-size:23px;font-weight:900;margin:0;letter-spacing:.02em}
-  header p{margin:6px 0 0;color:var(--muted);font-size:13px;max-width:60ch}
+  header h1{font-family:"Noto Serif TC",serif;font-size:30px;font-weight:900;margin:0;letter-spacing:.01em}
+  header p{margin:8px 0 0;color:var(--ink2);font-size:14.5px;line-height:1.65}
 
   .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:18px}
   .row{display:flex;gap:8px;flex-wrap:wrap}
@@ -57,8 +57,14 @@
   .msg.show{display:block}
   .msg.err{background:var(--warn-bg);color:var(--warn)}
 
-  .split{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:18px;margin-top:18px;align-items:start}
-  @media (max-width:900px){.split{grid-template-columns:minmax(0,1fr)}}
+  .split{margin-top:16px}
+  /* 技術檢視預設收起來——那是給開發看的，不是給使用者的 */
+  .why{margin-top:18px}
+  .why summary{cursor:pointer;font-size:12.5px;color:var(--muted);padding:8px 0;list-style:none}
+  .why summary::-webkit-details-marker{display:none}
+  .why summary::before{content:"▸ ";font-size:11px}
+  .why[open] summary::before{content:"▾ "}
+  .why summary:hover{color:var(--accent)}
 
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
   .tabs button{font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:6px;
@@ -110,10 +116,10 @@
   .overrides label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 
   /* ── 手機預覽 ── */
-  .phonewrap{position:sticky;top:18px}
-  .phonelabel{font-size:11px;letter-spacing:.12em;color:var(--muted);font-weight:700;margin-bottom:8px}
-  .phone{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--paper);
-    height:660px;overflow-y:auto;-webkit-overflow-scrolling:touch;max-width:100%}
+  .phonewrap{}
+  .phonelabel{display:none}
+  .phone{border:1px solid var(--prule);border-radius:12px;overflow:hidden;background:var(--paper);
+    max-width:100%}
 
   .octl{position:sticky;top:0;z-index:5;background:var(--paper);padding:10px 14px 9px;
     border-bottom:1px solid var(--prule);display:flex;gap:7px;flex-wrap:wrap}
@@ -186,22 +192,22 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>表格形狀偵測 · 驗證台</h1>
-    <p>丟一份試算表進來，看它自動判斷成什麼形狀、每一欄被認成什麼、以及為什麼。左邊是判斷依據，右邊是使用者實際會看到的手機頁面。</p>
+    <h1>CellFlow</h1>
+    <p>把複雜 Excel，一鍵變成最適合手機閱讀的流暢網頁。</p>
   </header>
 
   <div class="panel">
     <div class="row">
-      <input id="url" type="url" placeholder="貼上 Google 試算表網址（需設為「知道連結的任何人 · 檢視者」）">
-      <button id="go">載入</button>
+      <input id="url" type="url" placeholder="貼上 Google 試算表網址">
+      <button id="go">開啟</button>
     </div>
-    <div class="drop" id="drop">或把 .csv / .xlsx 檔案拖到這裡</div>
+    <div class="drop" id="drop">或點這裡選擇 .xlsx / .csv 檔案</div>
     <p class="hint2">
-      Google 試算表要先把共用設定改成 <b>「知道連結的任何人 · 檢視者」</b>，否則讀不到。<br>
-      試算表<b>只在你的瀏覽器裡解析</b>，內容不會傳到任何伺服器——這頁是純靜態網頁，沒有後端。
+      <b>資料不會上傳。</b>整個過程都在你的手機裡完成，這頁沒有後端伺服器。<br>
+      Google 試算表請先在「共用」把權限改成<b>「知道連結的任何人」</b>，否則讀不到。
     </p>
     <div class="samples">
-      <span>範例：</span>
+      <span>試試看：</span>
       <button data-s="pudu">活動流程表</button>
       <button data-s="budget">個人預算表</button>
       <button data-s="pnl">損益表</button>
@@ -210,16 +216,23 @@
       <button data-s="todo">購物清單</button>
     </div>
     <div class="msg" id="msg"></div>
-    <div class="diag" id="diag" hidden>
-      <button type="button" id="copyDiag">複製診斷資訊</button>
-      <span>判斷不對的話，按這個再貼給開發者。<b>只含欄位結構，不含任何儲存格內容。</b></span>
-    </div>
   </div>
 
   <div class="tabs" id="tabs" hidden></div>
   <div class="ask" id="ask" hidden></div>
 
   <div class="split" id="split" hidden>
+    <section class="phonewrap">
+      <p class="phonelabel">使用者看到的畫面</p>
+      <div class="phone"><div class="octl" id="octl" hidden></div><div class="out" id="out"></div></div>
+    </section>
+
+    <details class="why">
+      <summary>為什麼這樣顯示？</summary>
+    <div class="diag" id="diag" hidden>
+      <button type="button" id="copyDiag">複製診斷資訊</button>
+      <span>顯示不對的話，按這個再貼給我們。<b>只含欄位結構，不含任何內容。</b></span>
+    </div>
     <section class="panel">
       <div class="verdict">
         <span class="shape" id="shape"></span>
@@ -248,17 +261,13 @@
         <label>主標題欄 <select id="ovTitle"></select></label>
       </div>
     </section>
-
-    <section class="phonewrap">
-      <p class="phonelabel">使用者看到的畫面</p>
-      <div class="phone"><div class="octl" id="octl" hidden></div><div class="out" id="out"></div></div>
-    </section>
+    </details>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=24"></script>
+<script src="detect.js?v=25"></script>
 <script>
 var MS = 'https://createcatalog.public.onecdn.static.microsoft/catalog-assets/en-us/';
 // 全部是真實檔案。自編的乾淨範例會給人虛假的信心——
@@ -766,7 +775,7 @@ function renderPage(shape, roles){
 function diagnosticText(){
   if(!A) return '';
   var L = [];
-  L.push('【表格形狀偵測 · 診斷】');
+  L.push('【CellFlow 診斷】');
   L.push('來源：' + (sheetKey || '未知'));
   L.push('表格數：' + TABLES.length + '（目前第 ' + (cur + 1) + ' 個）');
   if(A.name) L.push('表格名稱：' + A.name);
@@ -791,7 +800,7 @@ function diagnosticText(){
          '、前導=' + (eff.roles.lead ? eff.roles.lead.name : '無'));
   var q = (SheetShape.quotedFacts && raw) ? SheetShape.quotedFacts(raw, A).length : 0;
   L.push('摘要引述：' + q + ' 條');
-  L.push('版本：detect v24');
+  L.push('版本：CellFlow detect v25');
   return L.join('\n');
 }
 
