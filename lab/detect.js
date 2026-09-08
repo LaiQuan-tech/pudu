@@ -753,8 +753,10 @@
       var distinct = Object.keys(uniq).length;
       // 數值欄絕對不能向下填補：空白代表「沒有」，不是「同上」。
       // 請假表把「特休」填下去，等於讓沒請假的月份繼承上個月的時數——那是捏造資料。
+      // 要認得 $1,000.00、(341.00)、12% 這些寫法。
+      // 只比對純數字會讓金額欄逃過這道防護——那正是這條規則要擋的東西。
       var numeric = filled.filter(function (v) {
-        return /^-?[\d,]+(\.\d+)?$/.test(v);
+        return /^\(?\s*[$€£¥＄]?\s*-?[\d,]+(\.\d+)?\s*[%)]?\s*\)?$/.test(v);
       }).length;
       if (numeric / filled.length > 0.3) continue;
 

@@ -47,6 +47,12 @@
   .drop{margin-top:10px;border:1.5px dashed var(--line);border-radius:8px;padding:14px;
     text-align:center;color:var(--muted);font-size:12.5px}
   .drop.over{border-color:var(--accent);background:var(--accent-bg);color:var(--accent)}
+  .hint2{margin-top:9px;font-size:12px;color:var(--muted);line-height:1.6}
+  .hint2 b{color:var(--ink2);font-weight:600}
+  .diag{margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .diag button{font-size:12.5px;padding:7px 13px;background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  .diag button:hover{background:var(--accent);color:#fff}
+  .diag span{font-size:12px;color:var(--muted)}
   .msg{margin-top:10px;padding:10px 12px;border-radius:7px;font-size:13px;display:none}
   .msg.show{display:block}
   .msg.err{background:var(--warn-bg);color:var(--warn)}
@@ -190,9 +196,13 @@
       <button id="go">載入</button>
     </div>
     <div class="drop" id="drop">或把 .csv / .xlsx 檔案拖到這裡</div>
+    <p class="hint2">
+      Google 試算表要先把共用設定改成 <b>「知道連結的任何人 · 檢視者」</b>，否則讀不到。<br>
+      試算表<b>只在你的瀏覽器裡解析</b>，內容不會傳到任何伺服器——這頁是純靜態網頁，沒有後端。
+    </p>
     <div class="samples">
       <span>範例：</span>
-      <button data-s="pudu">普渡排程</button>
+      <button data-s="pudu">活動流程表</button>
       <button data-s="budget">個人預算表</button>
       <button data-s="pnl">損益表</button>
       <button data-s="invoice">發票</button>
@@ -200,6 +210,10 @@
       <button data-s="todo">購物清單</button>
     </div>
     <div class="msg" id="msg"></div>
+    <div class="diag" id="diag" hidden>
+      <button type="button" id="copyDiag">複製診斷資訊</button>
+      <span>判斷不對的話，按這個再貼給開發者。<b>只含欄位結構，不含任何儲存格內容。</b></span>
+    </div>
   </div>
 
   <div class="tabs" id="tabs" hidden></div>
@@ -244,7 +258,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <!-- 改引擎時要把 v 往上加，否則瀏覽器會繼續跑快取裡的舊版 -->
-<script src="detect.js?v=23"></script>
+<script src="detect.js?v=24"></script>
 <script>
 var MS = 'https://createcatalog.public.onecdn.static.microsoft/catalog-assets/en-us/';
 // 全部是真實檔案。自編的乾淨範例會給人虛假的信心——
@@ -368,6 +382,7 @@ function run(rows){
   }).join('');
   if(TABLES.length > 1) say('這張工作表上並排著 ' + TABLES.length + ' 個獨立表格，已自動切開。');
   $('split').hidden = false;
+  $('diag').hidden = false;
   showTable(0);
 }
 
@@ -746,6 +761,40 @@ function renderPage(shape, roles){
   }).join('');
 }
 
+/* 診斷文字刻意不含任何儲存格內容——測試者會用公司的真實表格，
+   回報問題不該連帶把資料一起送出去。 */
+function diagnosticText(){
+  if(!A) return '';
+  var L = [];
+  L.push('【表格形狀偵測 · 診斷】');
+  L.push('來源：' + (sheetKey || '未知'));
+  L.push('表格數：' + TABLES.length + '（目前第 ' + (cur + 1) + ' 個）');
+  if(A.name) L.push('表格名稱：' + A.name);
+  L.push('判定形狀：' + A.shape.label);
+  L.push('判定理由：' + A.shape.reason);
+  L.push('標題列：第 ' + (A.headerRow + 1) + ' 列' + (A.headerRow ? '（略過 ' + A.headerRow + ' 列前言）' : ''));
+  L.push('資料：' + A.rows.length + ' 列 × ' + A.cols.length + ' 欄' +
+         (A.totals && A.totals.length ? '，合計列 ' + A.totals.length + ' 條' : ''));
+  if(A.notes && A.notes.length) L.push('結構轉換：' + A.notes.join('；'));
+  L.push('');
+  L.push('欄位：');
+  A.cols.forEach(function(c){
+    L.push('  ' + c.name + ' → ' + (TYPE_ZH[c.type] || c.type) +
+           '（角色 ' + (ROLE_ZH[(A.roles.assigned||{})[c.name]] || '無') +
+           '、有值 ' + c.filled + '/' + c.total +
+           '、相異 ' + c.distinct + '）');
+  });
+  var eff = effective();
+  L.push('');
+  L.push('目前呈現：分組=' + (eff.roles.group ? eff.roles.group.name : '無') +
+         '、標題=' + (eff.roles.title ? eff.roles.title.name : '無') +
+         '、前導=' + (eff.roles.lead ? eff.roles.lead.name : '無'));
+  var q = (SheetShape.quotedFacts && raw) ? SheetShape.quotedFacts(raw, A).length : 0;
+  L.push('摘要引述：' + q + ' 條');
+  L.push('版本：detect v24');
+  return L.join('\n');
+}
+
 /* ══ 事件 ══ */
 $('go').addEventListener('click', function(){ loadUrl($('url').value.trim()) });
 $('url').addEventListener('keydown', function(e){ if(e.key === 'Enter') $('go').click() });
@@ -758,6 +807,15 @@ function repaintOut(){
   renderRails();
   var h = $('hits'); if(h) h.textContent = window.__hits || '';
 }
+$('copyDiag').addEventListener('click', function(){
+  var t = diagnosticText();
+  if(!t) return;
+  var done = function(){ var b = $('copyDiag'); var o = b.textContent;
+    b.textContent = '已複製 ✓'; setTimeout(function(){ b.textContent = o }, 1600) };
+  if(navigator.clipboard) navigator.clipboard.writeText(t).then(done, function(){ window.prompt('複製這段：', t) });
+  else window.prompt('複製這段：', t);
+});
+
 $('octl').addEventListener('input', function(e){
   if(e.target.id === 'oq'){ outQ = e.target.value.trim().toLowerCase(); repaintOut() }
 });
