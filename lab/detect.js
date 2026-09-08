@@ -896,6 +896,65 @@
     return 0;
   }
 
+  /* 引述，不計算。
+     摘要的數字必須是表上原本就寫著的——加總會跟表上的值對不起來
+     （帳表實測差 1 元，是他們公式的進位），而且合計有階層，
+     小計和總計混著相加會得到 4.7 倍的荒謬數字。
+     兩個來源：前言裡的「標籤→數值」配對，以及合計列。 */
+
+  // 會計負數寫成 ($341.00)：左括號和貨幣符號會連在一起，
+  // 只允許一個前置字元會漏掉個人預算表的 Difference。
+  var RE_NUMLIKE = /^\(?\s*[$€£¥＄]?\s*-?[\d,]+(\.\d+)?\s*[%)]?\s*\)?$/;
+
+  function quotedFacts(grid, t) {
+    var g = normalize(grid || []);
+    var out = [], seen = {};
+    var push = function (label, value, kind, at) {
+      var k = label + '\u0000' + value;
+      if (!label || !value || seen[k]) return;
+      seen[k] = 1;
+      out.push({ label: label, value: value, kind: kind, at: at });
+    };
+    var txt = function (v) { return String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); };
+
+    // 1. 前言：文字格右邊隔著幾個空格出現數字 → 這是作者自己寫的摘要
+    var top = Math.min(t.headerRow || 0, g.length);
+    for (var r = 0; r < top; r++) {
+      var row = g[r];
+      for (var c = 0; c < row.length; c++) {
+        var lab = txt(row[c]);
+        if (!lab || lab.length > 70 || RE_NUMLIKE.test(lab)) continue;
+        for (var d = 1; d <= 4 && c + d < row.length; d++) {
+          var val = txt(row[c + d]);
+          if (!val) continue;                       // 中間的空格跳過
+          if (RE_NUMLIKE.test(val)) push(lab, val, 'preamble', 'R' + (r + 1) + 'C' + (c + d + 1));
+          break;                                    // 碰到第一個有值的就停，不再往右找
+        }
+      }
+    }
+
+    // 2. 合計列：標籤照抄，不把小計說成總計
+    (t.totals || []).forEach(function (row, i) {
+      var lab = '';
+      for (var c = 0; c < row.length; c++) {
+        var v = txt(row[c]);
+        if (v && !RE_NUMLIKE.test(v)) { lab = v; break; }
+      }
+      row.forEach(function (v, c) {
+        var val = txt(v);
+        if (!val || !RE_NUMLIKE.test(val)) return;
+        var colName = txt((t.header && t.header[c]) || (t.grid && t.grid[0] ? t.grid[0][c] : ''));
+        var named = colName && !/^欄 \d+$/.test(colName);
+        if (!lab && !named) return;                 // 沒有列標籤也沒有欄名 → 這個數字說明不了什麼
+        var full = lab ? (named ? lab + ' · ' + colName : lab) : colName;
+        push(full, val, 'total', 'T' + (i + 1) + 'C' + (c + 1));
+      });
+    });
+
+    return out;
+  }
+
+  S.quotedFacts = quotedFacts;
   S.headerPeriod = headerPeriod;
   S.findTables = findTables;
 
