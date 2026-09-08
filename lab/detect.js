@@ -266,8 +266,14 @@
     var numOrEmpty = others.filter(function (c) {
       return c.type === 'number' || c.type === 'money' || c.type === 'empty';
     });
-    if (first && others.length >= 2 && nums.length >= 1 &&
-        numOrEmpty.length / others.length >= 0.8 &&
+    // 條件放寬的理由（用 57 個真實請假表跑出來的）：
+    // 多一欄「備註」就從 4/4 掉到 3/4，同一個人不同年度因此判成不同形狀；
+    // 整年沒請假時所有數值欄全空，nums 為 0 也會掉出去。
+    // 結構是不是矩陣，不該被一欄註記或某一年剛好沒資料改變。
+    var matrixish = numOrEmpty.length >= 2 &&
+                    numOrEmpty.length / others.length >= 0.6 &&
+                    (nums.length >= 1 || numOrEmpty.length === others.length);
+    if (first && others.length >= 2 && matrixish &&
         ['text', 'category', 'person'].indexOf(first.type) >= 0) {
       return {
         shape: 'matrix', label: '矩陣／報表', matrix: true,

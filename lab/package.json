@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "description": "表格形狀偵測：規則層與語意層的比較工具",
-  "scripts": { "compare": "node compare.mjs" },
-  "dependencies": { "@anthropic-ai/sdk": "^0.72.0" }
+  "scripts": {
+    "compare": "node compare.mjs",
+    "audit": "node audit.mjs",
+    "test": "node test.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.72.0",
+    "xlsx": "^0.18.5"
+  }
 }
